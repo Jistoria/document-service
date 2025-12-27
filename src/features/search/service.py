@@ -1,3 +1,10 @@
+import math
+from src.core.database import db_instance
+# Asegúrate de importar las clases originales. 
+# No necesitamos importar los Wrappers aquí si devolvemos diccionarios, 
+# pero sí necesitamos los modelos de datos internos (DocumentDetail, etc).
+from .models import DocumentDetail, DocumentListResponse, EntityRef, DetailPagination
+
 class SearchService:
 
     def get_db(self):
