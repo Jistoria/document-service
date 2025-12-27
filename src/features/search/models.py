@@ -59,3 +59,18 @@ class DetailPagination(BaseModel):
 class DocumentListResponse(BaseModel):
     data: List[DocumentDetail]
     pagination: DetailPagination
+
+from typing import Generic, TypeVar
+
+T = TypeVar('T')
+
+class ApiResponse(BaseModel, Generic[T]):
+    success: bool
+    message: str
+    data: Optional[T] = None
+
+# Definimos alias específicos para usarlos en el Router
+# Esto ayuda a que el Swagger se genere correctamente
+DocumentDetailResponse = ApiResponse[DocumentDetail]
+DocumentListAPIResponse = ApiResponse[DocumentListResponse]
+EntityListAPIResponse = ApiResponse[List[EntityRef]]
