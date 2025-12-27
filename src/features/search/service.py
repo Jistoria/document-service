@@ -1,9 +1,3 @@
-import math
-
-from src.core.database import db_instance
-from .models import DocumentDetail, DocumentListResponse, EntityRef, DetailPagination
-
-
 class SearchService:
 
     def get_db(self):
@@ -11,18 +5,16 @@ class SearchService:
 
     def get_document_by_id(self, doc_id: str):
         db = self.get_db()
-        # Query AQL normal (sin f-string, no necesita doble llave)
+        # Query AQL normal
         aql = """
         FOR doc IN documents
             FILTER doc._key == @doc_id
 
-            // Buscar Entidad relacionada (Carrera/Facultad)
             LET entity = (
                 FOR v IN 1..1 OUTBOUND doc pertenece_a
                 RETURN { id: v._key, name: v.name, type: v.type, code: v.code }
             )[0]
 
-            // Buscar Esquema relacionado
             LET schema = (
                 FOR v IN 1..1 OUTBOUND doc usa_esquema
                 RETURN { id: v._key, name: v.name, version: v.version }
@@ -35,7 +27,20 @@ class SearchService:
         """
         cursor = db.aql.execute(aql, bind_vars={"doc_id": doc_id})
         result = list(cursor)
-        return DocumentDetail(**result[0]) if result else None
+
+        # --- FIX: Formato API Standard ---
+        if result:
+            return {
+                "success": True,
+                "data": DocumentDetail(**result[0]),
+                "message": "Documento encontrado exitosamente."
+            }
+        else:
+            return {
+                "success": False,
+                "data": None,
+                "message": "El documento no existe o no fue encontrado."
+            }
 
     def search_documents(self, page: int = 1, page_size: int = 10, entity_id: str = None, status: str = None):
         db = self.get_db()
@@ -92,22 +97,16 @@ class SearchService:
         total_items = data["total"]
 
         # --- CÁLCULOS DE PAGINACIÓN ---
-
-        # 1. Calcular última página
-        # Si total es 0, last_page es 1 para no romper el front
         if total_items > 0:
             last_page = math.ceil(total_items / page_size)
         else:
             last_page = 1
 
-        # 2. Calcular 'to' (hasta qué item estamos mostrando)
-        # Ej: Página 1, 10 items -> to = 10. Página 2, 5 items -> to = 15.
         to_item = offset + len(items_list)
-
-        # 3. Calcular hasMorePages
         has_more = page < last_page
 
-        return DocumentListResponse(
+        # Objeto interno de datos
+        internal_data = DocumentListResponse(
             data=items_list,
             pagination=DetailPagination(
                 currentPage=page,
@@ -119,11 +118,15 @@ class SearchService:
             )
         )
 
+        # --- FIX: Formato API Standard ---
+        return {
+            "success": True,
+            "data": internal_data,
+            "message": "Búsqueda completada exitosamente."
+        }
+
 
     def get_available_entities(self):
-        """
-        Retorna solo las entidades que tienen documentos asociados.
-        """
         db = self.get_db()
         aql = """
         FOR doc IN documents
@@ -135,7 +138,13 @@ class SearchService:
             }
         """
         cursor = db.aql.execute(aql)
-        return [EntityRef(**d) for d in cursor]
+        entities = [EntityRef(**d) for d in cursor]
 
+        # --- FIX: Formato API Standard ---
+        return {
+            "success": True,
+            "data": entities,
+            "message": f"Se encontraron {len(entities)} entidades con documentos."
+        }
 
 search_service = SearchService()
