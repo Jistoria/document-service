@@ -5,7 +5,7 @@ from .service import search_service
 
 router = APIRouter(prefix="/documents", tags=["Search & Retrieval"])
 
-@router.get("/", response_model=DocumentListResponse)
+@router.get("/", response_model=DocumentListAPIResponse)
 async def get_documents(
     page: int = 1,
     limit: int = 10,
