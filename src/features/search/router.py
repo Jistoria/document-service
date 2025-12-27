@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
-from .models import DocumentDetail, DocumentListResponse, EntityRef
+from .models import DocumentDetailResponse, DocumentListAPIResponse, EntityListAPIResponse
 from .service import search_service
 
 router = APIRouter(prefix="/documents", tags=["Search & Retrieval"])
@@ -20,7 +20,7 @@ async def get_documents(
     """
     return search_service.search_documents(page, limit, entity_id, status)
 
-@router.get("/catalogs/entities", response_model=List[EntityRef])
+@router.get("/catalogs/entities", response_model=EntityListAPIResponse)
 async def get_search_filters():
     """
     Retorna las entidades (Carreras/Facultades) que TIENEN documentos.
@@ -28,7 +28,7 @@ async def get_search_filters():
     """
     return search_service.get_available_entities()
 
-@router.get("/{doc_id}", response_model=DocumentDetail)
+@router.get("/{doc_id}", response_model=DocumentDetailResponse)
 async def get_document_detail(doc_id: str):
     """
     Obtiene el detalle completo de un documento por su ID (Task ID),
