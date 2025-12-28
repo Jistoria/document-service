@@ -1,4 +1,6 @@
-from typing import Any, Dict
+# src/features/ocr_updates/pipeline/builder.py
+from typing import Any, Dict, Optional
+
 
 def build_document_record(
     *,
@@ -13,7 +15,10 @@ def build_document_record(
     context_values: Dict[str, Any],
     schema_info: Dict[str, Any],
     now_iso: str,
+    naming: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    naming = naming or {}
+
     return {
         "_key": task_id,
         "owner": user_snapshot,
@@ -22,15 +27,27 @@ def build_document_record(
         "processing_time": internal_result.get("processing_time"),
         "created_at": timestamp,
         "updated_at": now_iso,
+
+        "naming": {
+            "display_name": naming.get("display_name"),
+            "name_code": naming.get("name_code"),
+            "name_code_numeric": naming.get("name_code_numeric"),
+            "name_path": naming.get("name_path"),
+            "code_path": naming.get("code_path"),
+            "code_numeric_path": naming.get("code_numeric_path"),
+            "timestamp_tag": naming.get("timestamp_tag"),
+        },
+
         "storage": {
             "bucket": "documents-storage",
             "pdf_path": stored_paths.get("pdf"),
             "json_path": stored_paths.get("json"),
             "text_path": stored_paths.get("text"),
-            "minio_original_pdf": stored_paths.get("minio_original_pdf"),
         },
+
         "validated_metadata": validated_metadata,
         "integrity_warnings": integrity_warnings,
+
         "context_snapshot": {
             "entity_id": context_values.get("id"),
             "entity_name": context_values.get("name"),
