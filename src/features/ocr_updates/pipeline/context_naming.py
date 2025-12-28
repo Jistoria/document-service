@@ -1,4 +1,5 @@
 # src/features/ocr_updates/pipeline/context_naming.py
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -40,29 +41,36 @@ def _fmt_numeric(v: Any) -> str:
 
 def get_context_chain(db, entity_id: str, max_hops: int = 10) -> List[Dict[str, Any]]:
     """
-    Devuelve cadena ordenada RAÍZ -> HOJA usando p.vertices para orden estable.
-    Asume:
-      - vertices: entidades
-      - edge collection: pertenece_a (child -> parent)
+    Devuelve cadena ordenada RAÍZ -> HOJA.
+    Asume 'belongs_to' edges van de HIJO (_from) -> PADRE (_to).
+    Usamos OUTBOUND para subir desde la entidad hasta la raíz.
     """
-    aql = """
-    FOR v, e, p IN 0..@max_hops OUTBOUND DOCUMENT(CONCAT('entidades/', @entity_id)) pertenece_a
-      OPTIONS { uniqueVertices: "path" }
-      LIMIT 1
-      RETURN p.vertices
-    """
-    cursor = db.aql.execute(aql, bind_vars={"entity_id": entity_id, "max_hops": max_hops})
-    rows = list(cursor)
-
-    if not rows or not rows[0]:
-        # fallback: devolver solo la entidad actual
-        if db.has_collection("entidades"):
-            doc = db.collection("entidades").get(entity_id)
+    # Verificamos si la colección de edges existe antes de consultar
+    if not db.has_collection("belongs_to"):
+        # Fallback si no hay grafo aun
+        if db.has_collection("entities"):
+            doc = db.collection("entities").get(entity_id)
             return [doc] if doc else []
         return []
 
-    vertices = rows[0]  # [start, parent, grandparent, ...]
-    # Queremos raíz -> hoja
+    aql = """
+    FOR v, e, p IN 0..@max_hops OUTBOUND DOCUMENT(CONCAT('entities/', @entity_id)) belongs_to
+      // OPTIONS { uniqueVertices: "path" } // A veces causa problemas si hay ciclos, bfs es mas seguro para jerarquias
+      RETURN v
+    """
+    # El AQL arriba devuelve los VÉRTICES individuales en orden de travesía:
+    # 1. Entidad Inicial (Hijo)
+    # 2. Padre
+    # 3. Abuelo
+    # ...
+
+    cursor = db.aql.execute(aql, bind_vars={"entity_id": entity_id, "max_hops": max_hops})
+    vertices = list(cursor)
+
+    if not vertices:
+        return []
+
+    # Como Arango devuelve [Hijo, Padre, Abuelo], invertimos para tener [Abuelo, Padre, Hijo] (Raíz -> Hoja)
     return list(reversed(vertices))
 
 
@@ -124,16 +132,29 @@ def build_context_names(db, entity_id: Optional[str]) -> Dict[str, Any]:
 
     # padre + hoja
     leaf = norm[-1]
+    # Si la cadena tiene mas de 1 elemento, el penultimo es el padre inmediato
     parent = norm[-2] if len(norm) >= 2 else None
 
-    code_combo = _safe_join([_safe_str(parent.get("code")) if parent else "", _safe_str(leaf.get("code"))], "-")
-    name_code = f"{code_combo} - {_safe_str(leaf.get('name'))}".strip(" -") if code_combo else _safe_str(leaf.get("name"))
+    # Code combo
+    if parent:
+        code_combo = _safe_join([_safe_str(parent.get("code")), _safe_str(leaf.get("code"))], "-")
+    else:
+        code_combo = _safe_str(leaf.get("code"))
 
-    num_combo = _safe_join([
-        _fmt_numeric(parent.get("code_numeric")) if parent else "",
-        _fmt_numeric(leaf.get("code_numeric")),
-    ], "-")
-    name_code_numeric = f"{num_combo} - {_safe_str(leaf.get('name'))}".strip(" -") if num_combo else _safe_str(leaf.get("name"))
+    name_code = f"{code_combo} - {_safe_str(leaf.get('name'))}".strip(" -") if code_combo else _safe_str(
+        leaf.get("name"))
+
+    # Numeric combo
+    if parent:
+        num_combo = _safe_join([
+            _fmt_numeric(parent.get("code_numeric")),
+            _fmt_numeric(leaf.get("code_numeric")),
+        ], "-")
+    else:
+        num_combo = _fmt_numeric(leaf.get("code_numeric"))
+
+    name_code_numeric = f"{num_combo} - {_safe_str(leaf.get('name'))}".strip(" -") if num_combo else _safe_str(
+        leaf.get("name"))
 
     display_name = f"{name_code} - {ts}".strip()
 

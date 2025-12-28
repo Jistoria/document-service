@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 @dataclass
@@ -16,3 +16,5 @@ class ParsedOcrPayload:
 
     user_snapshot: Dict[str, Any]
     presigned_source: Dict[str, Any]
+
+    required_document: Dict[str, Any] = field(default_factory=dict)

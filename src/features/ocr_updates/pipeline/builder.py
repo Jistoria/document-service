@@ -16,6 +16,7 @@ def build_document_record(
     schema_info: Dict[str, Any],
     now_iso: str,
     naming: Optional[Dict[str, Any]] = None,
+    required_document: Dict[str, Any],
 ) -> Dict[str, Any]:
     naming = naming or {}
 
@@ -53,5 +54,8 @@ def build_document_record(
             "entity_name": context_values.get("name"),
             "schema_id": schema_info.get("id"),
             "schema_name": schema_info.get("name"),
+            "required_doc_id": required_document.get("id"),
+            "required_doc_name": required_document.get("name"),
+            "required_doc_code": required_document.get("code")
         },
     }

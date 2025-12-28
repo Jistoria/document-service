@@ -16,7 +16,7 @@ async def validate_metadata_strict(
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Valida metadata OCR contra el esquema (meta_schemas) en ArangoDB.
-    - Campos tipo entidad: intenta match en colección 'entidades'
+    - Campos tipo entidad: intenta match en colección 'entities'
     - academic_period: regex 20XX-1/2
     - texto genérico: inválido si > 100 chars
     """
@@ -160,7 +160,7 @@ def find_entity_match(db, text: Any, type_key: str | None):
     text_clean = str(text).strip()
 
     aql = """
-    FOR e IN entidades
+    FOR e IN entities
         FILTER e.type == @type_key
         FILTER CONTAINS(LOWER(e.name), LOWER(@search)) OR e.code == @search
         LIMIT 1

@@ -61,6 +61,7 @@ async def process_ocr_result(payload: dict):
             schema_info=parsed.schema_info,
             now_iso=datetime.now().isoformat(),
             naming=naming,
+            required_document=parsed.required_document,  # <--- Pasamos el dato
         )
 
         # 6) Persistencia

@@ -23,7 +23,7 @@ async def get_documents(
 @router.get("/catalogs/entities", response_model=EntityListAPIResponse)
 async def get_search_filters():
     """
-    Retorna las entidades (Carreras/Facultades) que TIENEN documentos.
+    Retorna las entities (Carreras/Facultades) que TIENEN documentos.
     Útil para el dropdown de filtros.
     """
     return search_service.get_available_entities()

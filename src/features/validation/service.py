@@ -31,7 +31,7 @@ class ValidationService:
         # Si el usuario validó campos que resultaron ser Entidades (Carrera, Facultad),
         # creamos una relación de "referencia" o "participación".
 
-        # Extraemos las entidades validadas del payload
+        # Extraemos las entities validadas del payload
         validated_data = payload.validated_metadata
 
         for key, item in validated_data.items():
@@ -52,12 +52,12 @@ class ValidationService:
         Evita duplicados: Si ya pertenece a esa entidad, no crea la referencia para no redundar.
         """
 
-        # Verificar si YA existe una relación de 'pertenece_a' con esa misma entidad
+        # Verificar si YA existe una relación de 'belongs_to' con esa misma entidad
         # (Para no decir que "Software referencia a Software" si ya es su dueño)
         check_owner_aql = """
         FOR doc IN documents
             FILTER doc._key == @task_id
-            FOR v IN 1..1 OUTBOUND doc pertenece_a
+            FOR v IN 1..1 OUTBOUND doc belongs_to
             FILTER v._key == @entity_id
             RETURN 1
         """
@@ -71,10 +71,10 @@ class ValidationService:
             db.create_collection(edge_name, edge=True)
 
         upsert_edge_aql = f"""
-        UPSERT {{ _from: CONCAT('documents/', @task_id), _to: CONCAT('entidades/', @entity_id) }}
+        UPSERT {{ _from: CONCAT('documents/', @task_id), _to: CONCAT('entities/', @entity_id) }}
         INSERT {{ 
             _from: CONCAT('documents/', @task_id), 
-            _to: CONCAT('entidades/', @entity_id),
+            _to: CONCAT('entities/', @entity_id),
             created_at: DATE_NOW(),
             source: 'manual_validation'
         }}

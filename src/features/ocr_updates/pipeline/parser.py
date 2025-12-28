@@ -24,6 +24,12 @@ def parse_payload(payload: Dict[str, Any]) -> ParsedOcrPayload:
         "email": raw_user.get("email", "")
     }
 
+    required_doc_info = {
+        "id": file_info.get("requiredDocumentId"),
+        "name": file_info.get("requiredDocumentName"),
+        "code": file_info.get("requiredDocumentCode")
+    }
+
     presigned_source = internal_result.get("presigned_urls", {}) or {}
 
     return ParsedOcrPayload(
@@ -37,4 +43,5 @@ def parse_payload(payload: Dict[str, Any]) -> ParsedOcrPayload:
         schema_info=schema_info,
         user_snapshot=user_snapshot,
         presigned_source=presigned_source,
+        required_document=required_doc_info,
     )

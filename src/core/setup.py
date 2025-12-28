@@ -10,7 +10,7 @@ def init_arango_schema(db: StandardDatabase):
 
     # --- 1. Colecciones de Documentos (Nodos) ---
     doc_collections = [
-        "entidades",  # Sedes, Facultades, Departamentos, Carreras
+        "entities",  # Sedes, Facultades, Departamentos, Carreras
         "meta_schemas",  # Tus definiciones de formularios (JSON schemas)
         "dms_users"  # Para cuando conectes los usuarios
     ]
@@ -23,7 +23,7 @@ def init_arango_schema(db: StandardDatabase):
     # --- 2. Colecciones de Aristas (Relaciones) ---
     # ¡Importante! Estas deben crearse con edge=True
     edge_collections = [
-        "pertenece_a",  # La jerarquía: Carrera -> Facultad -> Sede
+        "belongs_to",  # La jerarquía: Carrera -> Facultad -> Sede
         # Aquí añadirás otras en el futuro, ej: "firmado_por", "subido_por"
     ]
 

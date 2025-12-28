@@ -23,11 +23,11 @@ async def create_structural_edges(db, *, task_id: str, schema_id: str | None, co
         await create_safe_edge(
             db,
             from_id=f"documents/{task_id}",
-            to_id=f"entidades/{context_entity_id}",
-            collection="pertenece_a",
+            to_id=f"entities/{context_entity_id}",
+            collection="file_located_in",
             edge_key=f"{task_id}_{context_entity_id}",
         )
-        logger.info("🔗 Edge creado: documents/%s -> entidades/%s (pertenece_a) [%s]", task_id, context_entity_id, context_entity_type or "entity")
+        logger.info("🔗 Edge creado: documents/%s -> entities/%s (file_located_in) [%s]", task_id, context_entity_id, context_entity_type or "entity")
 
 
 async def create_safe_edge(db, *, from_id: str, to_id: str, collection: str, edge_key: str):

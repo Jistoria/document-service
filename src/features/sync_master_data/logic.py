@@ -19,14 +19,14 @@ async def sync_to_arango(db: StandardDatabase, data: MasterDataExport):
             await _upsert_entity(db, dept.id, dept.name, 'facultad', dept.code, dept.code_numeric)
 
             # C. Relación: Facultad -> PERTENECE_A -> Sede
-            await _upsert_edge(db, dept.id, sede.id, 'pertenece_a')
+            await _upsert_edge(db, dept.id, sede.id, 'belongs_to')
 
             for car in dept.careers:
                 # D. Nodo Carrera
                 await _upsert_entity(db, car.id, car.name, 'carrera', car.code, car.code_numeric)
 
                 # E. Relación: Carrera -> PERTENECE_A -> Facultad
-                await _upsert_edge(db, car.id, dept.id, 'pertenece_a')
+                await _upsert_edge(db, car.id, dept.id, 'belongs_to')
 
     # -------------------------------------------------------
     # 2. SINCRONIZAR ESQUEMAS
@@ -77,7 +77,7 @@ async def _upsert_entity(db, uuid, name, type_label, code=None, code_numeric=Non
         code: @code,
         code_numeric: @code_numeric
     }
-    IN entidades
+    IN entities
     """
     db.aql.execute(aql, bind_vars={
         'key': uuid,
@@ -89,7 +89,7 @@ async def _upsert_entity(db, uuid, name, type_label, code=None, code_numeric=Non
 
 
 async def _upsert_edge(db, child_id, parent_id, collection):
-    """Crea o actualiza una relación entre entidades"""
+    """Crea o actualiza una relación entre entities"""
     # Usamos una clave compuesta para evitar aristas duplicadas
     edge_key = f"{child_id}_{parent_id}"
 
@@ -97,8 +97,8 @@ async def _upsert_edge(db, child_id, parent_id, collection):
     UPSERT {{ _key: @key }}
     INSERT {{ 
         _key: @key, 
-        _from: CONCAT('entidades/', @child), 
-        _to: CONCAT('entidades/', @parent) 
+        _from: CONCAT('entities/', @child), 
+        _to: CONCAT('entities/', @parent) 
     }}
     UPDATE {{ }}
     IN {collection}

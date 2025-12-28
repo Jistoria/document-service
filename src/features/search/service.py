@@ -18,7 +18,7 @@ class SearchService:
             FILTER doc._key == @doc_id
 
             LET entity = (
-                FOR v IN 1..1 OUTBOUND doc pertenece_a
+                FOR v IN 1..1 OUTBOUND doc belongs_to
                 RETURN { id: v._key, name: v.name, type: v.type, code: v.code }
             )[0]
 
@@ -67,7 +67,7 @@ class SearchService:
 
         if entity_id:
             filters.append("""
-                (FOR v IN 1..1 OUTBOUND doc pertenece_a FILTER v._key == @entity_id RETURN 1)[0] == 1
+                (FOR v IN 1..1 OUTBOUND doc belongs_to FILTER v._key == @entity_id RETURN 1)[0] == 1
             """)
             bind_vars["entity_id"] = entity_id
 
@@ -81,7 +81,7 @@ class SearchService:
                 SORT doc.created_at DESC
                 LIMIT @offset, @limit
 
-                LET entity = (FOR v IN 1..1 OUTBOUND doc pertenece_a RETURN {{ id: v._key, name: v.name, type: v.type }})[0]
+                LET entity = (FOR v IN 1..1 OUTBOUND doc belongs_to RETURN {{ id: v._key, name: v.name, type: v.type }})[0]
                 LET schema = (FOR v IN 1..1 OUTBOUND doc usa_esquema RETURN {{ id: v._key, name: v.name }})[0]
 
                 RETURN MERGE(doc, {{ context_entity: entity, used_schema: schema }})
@@ -137,7 +137,7 @@ class SearchService:
         db = self.get_db()
         aql = """
         FOR doc IN documents
-            FOR entity IN 1..1 OUTBOUND doc pertenece_a
+            FOR entity IN 1..1 OUTBOUND doc belongs_to
             RETURN DISTINCT {
                 id: entity._key,
                 name: entity.name,
@@ -151,7 +151,7 @@ class SearchService:
         return {
             "success": True,
             "data": entities,
-            "message": f"Se encontraron {len(entities)} entidades con documentos."
+            "message": f"Se encontraron {len(entities)} entities con documentos."
         }
 
 search_service = SearchService()
