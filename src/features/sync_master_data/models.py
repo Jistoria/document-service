@@ -55,9 +55,37 @@ class MetadataSchemaSync(BaseModel):
     # El JSON usa 'metadataFields'
     metadataFields: List[SchemaFieldSync] = []
 
-# --- 3. Modelo Principal (Root) ---
+# --- 3. NUEVOS: Modelos de Catálogo de Procesos ---
 
+class RequiredDocumentSync(BaseModel):
+    id: str
+    name: str
+    codeDefault: str
+    metadataSchemaId: Optional[str] = None
+
+class ProcessSync(BaseModel):
+    id: str
+    name: str
+    code: str
+    parentId: Optional[str] = None
+    # Recursividad: Un proceso puede tener subprocesos
+    subProcesses: List['ProcessSync'] = []
+    requiredDocuments: List[RequiredDocumentSync] = []
+
+class ProcessCategorySync(BaseModel):
+    id: str
+    name: str
+    code: str
+    processes: List[ProcessSync] = []
+
+class SubsystemSync(BaseModel):
+    id: str
+    name: str
+    code: str
+    processCategories: List[ProcessCategorySync] = []
+
+# --- 4. Modelo Principal (Root) ---
 class MasterDataExport(BaseModel):
-    # Ahora structure es DIRECTAMENTE una lista
     structure: List[HeadOfficeSync]
     schemas: List[MetadataSchemaSync]
+    catalog: List[SubsystemSync] = [] # <--- NUEVO CAMPO

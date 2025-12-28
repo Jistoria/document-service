@@ -1,14 +1,41 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Generic, TypeVar
 from datetime import datetime
 
 
-# --- Bloques básicos para relaciones ---
+# --- Bloques de Objetos Anidados ---
+
+class OwnerRef(BaseModel):
+    id: str
+    name: str
+    email: Optional[str] = None
+
+
+class NamingRef(BaseModel):
+    display_name: Optional[str] = None
+    name_code: Optional[str] = None
+    name_code_numeric: Optional[str] = None
+    name_path: Optional[str] = None
+    code_path: Optional[str] = None
+    code_numeric_path: Optional[str] = None
+    timestamp_tag: Optional[str] = None
+
+
+class StorageRef(BaseModel):
+    bucket: Optional[str] = None
+    pdf_path: Optional[str] = None
+    json_path: Optional[str] = None
+    text_path: Optional[str] = None
+    pdf_original_path: Optional[str] = None
+    # Campo calculado opcional por si decides generar URLs firmadas al vuelo
+    pdf_signed_url: Optional[str] = None
+
+
+# --- Bloques de Grafos (Relaciones) ---
 
 class EntityRef(BaseModel):
     id: str
     name: str
-    # En NoSQL a veces falta el tipo, ponemos un default por seguridad
     type: Optional[str] = "unknown"
     code: Optional[str] = None
 
@@ -16,65 +43,76 @@ class EntityRef(BaseModel):
 class SchemaRef(BaseModel):
     id: str
     name: str
-    # CORRECCIÓN AQUÍ: Hacemos la versión Opcional
-    # Si no viene en la BD, valdrá None (o puedes poner = 1 si prefieres un default)
     version: Optional[int] = None
 
 
-class StorageRef(BaseModel):
-    pdf_url: Optional[str] = None
-    json_validated_url: Optional[str] = None
-    text_url: Optional[str] = None
-
-class OwnerRef(BaseModel):
+class RequiredDocumentRef(BaseModel):
     id: str
     name: str
+    code_default: Optional[str] = None
+
 
 # --- Respuesta Detallada de Documento ---
 
 class DocumentDetail(BaseModel):
     id: str = Field(..., alias="_key")
-    original_filename: Optional[str] = "Sin nombre"  # Por seguridad
+
+    owner: Optional[OwnerRef] = None
     status: Optional[str] = "processing"
+
+    original_filename: Optional[str] = "Sin nombre"
+    processing_time: Optional[float] = None
+
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
+    # Nuevo bloque de naming
+    naming: Optional[NamingRef] = None
 
-    # Metadatos validados
+    # Metadatos validados (Estructura dinámica)
     metadata: Dict[str, Any] = Field(default={}, alias="validated_metadata")
 
-    # Enlaces a archivos (Puede venir vacío si falló la subida)
+    # Advertencias de integridad
+    integrity_warnings: List[str] = []
+
+    # Storage (Rutas)
     storage: Optional[StorageRef] = None
 
-    # Relaciones del Grafo
-    context_entity: Optional[EntityRef] = None
-    used_schema: Optional[SchemaRef] = None
+    # Snapshot del contexto (Lo que está guardado en el documento)
+    context_snapshot: Dict[str, Any] = {}
+
+    # --- Relaciones "Vivas" del Grafo (Se llenan en el Service) ---
+    graph_entity: Optional[EntityRef] = Field(None, alias="context_entity")
+    graph_schema: Optional[SchemaRef] = Field(None, alias="used_schema")
+    graph_required_document: Optional[RequiredDocumentRef] = Field(None, alias="required_document")
 
 
-# --- Respuesta de Lista Paginada ---
+# --- Paginación y Wrappers ---
 
 class DetailPagination(BaseModel):
     currentPage: int
     lastPage: int
     perPage: int
     total: int
-    to: int # El índice del último elemento mostrado (ej: mostrando 1-10, to=10)
-    hasMorePages: bool # Usamos bool (true/false) que es el estándar JSON
+    to: int
+    hasMorePages: bool
+
 
 class DocumentListResponse(BaseModel):
     data: List[DocumentDetail]
     pagination: DetailPagination
 
-from typing import Generic, TypeVar
 
 T = TypeVar('T')
+
 
 class ApiResponse(BaseModel, Generic[T]):
     success: bool
     message: str
     data: Optional[T] = None
 
-# Definimos alias específicos para usarlos en el Router
-# Esto ayuda a que el Swagger se genere correctamente
+
+# Alias para el Router
 DocumentDetailResponse = ApiResponse[DocumentDetail]
 DocumentListAPIResponse = ApiResponse[DocumentListResponse]
 EntityListAPIResponse = ApiResponse[List[EntityRef]]

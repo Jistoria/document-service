@@ -75,6 +75,7 @@ async def process_ocr_result(payload: dict):
             schema_id=parsed.schema_info.get("id"),
             context_entity_id=context_entity_id,
             context_entity_type=context_entity_type,
+            required_doc_id=parsed.required_document.get("id"),
         )
 
     except Exception as e:

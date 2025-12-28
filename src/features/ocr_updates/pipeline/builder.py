@@ -44,6 +44,7 @@ def build_document_record(
             "pdf_path": stored_paths.get("pdf"),
             "json_path": stored_paths.get("json"),
             "text_path": stored_paths.get("text"),
+            "pdf_original_path": stored_paths.get("pdf_original_path"),
         },
 
         "validated_metadata": validated_metadata,

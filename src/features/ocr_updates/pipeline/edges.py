@@ -2,7 +2,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def create_structural_edges(db, *, task_id: str, schema_id: str | None, context_entity_id: str | None, context_entity_type: str | None):
+
+async def create_structural_edges(
+    db,
+    *,
+    task_id: str,
+    schema_id: str | None,
+    context_entity_id: str | None,
+    context_entity_type: str | None,
+    required_doc_id: str | None
+):
     """
     (7) RESTAURACIÓN DE EDGES (RELACIONES ESTRUCTURALES)
     Estas relaciones vienen del JSON externo (contexto inmutable), no del OCR.
@@ -28,6 +37,18 @@ async def create_structural_edges(db, *, task_id: str, schema_id: str | None, co
             edge_key=f"{task_id}_{context_entity_id}",
         )
         logger.info("🔗 Edge creado: documents/%s -> entities/%s (file_located_in) [%s]", task_id, context_entity_id, context_entity_type or "entity")
+
+    # C. Document -> RequiredDocument (complies_with)
+    if required_doc_id:
+        # Asumimos que el Management sincronizó estos nodos en la colección 'required_documents'
+        await create_safe_edge(
+            db,
+            from_id=f"documents/{task_id}",
+            to_id=f"required_documents/{required_doc_id}",
+            collection="complies_with",
+            edge_key=f"{task_id}_{required_doc_id}",
+        )
+        logger.info(f"🔗 Edge creado: documents/{task_id} -> required_documents/{required_doc_id} (complies_with)")
 
 
 async def create_safe_edge(db, *, from_id: str, to_id: str, collection: str, edge_key: str):

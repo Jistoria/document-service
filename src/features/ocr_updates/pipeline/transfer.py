@@ -13,7 +13,7 @@ async def transfer_all_files(source_urls: dict, base_dest_path: str):
         ("minio_pdfa", ".pdf", "pdf", "application/pdf"),
         ("minio_validated", ".json", "json", "application/json"),
         ("minio_text", ".txt", "text", "text/plain"),
-        ("minio_original_pdf", ".pdf", "minio_original_pdf", "application/pdf")
+        ("minio_original_pdf", ".pdf", "pdf_original_path", "application/pdf")
     ]
 
     async with httpx.AsyncClient() as client:

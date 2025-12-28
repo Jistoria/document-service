@@ -1,9 +1,12 @@
 import math
 from src.core.database import db_instance
-# Asegúrate de importar las clases originales. 
-# No necesitamos importar los Wrappers aquí si devolvemos diccionarios, 
-# pero sí necesitamos los modelos de datos internos (DocumentDetail, etc).
-from .models import DocumentDetail, DocumentListResponse, EntityRef, DetailPagination
+from .models import (
+    DocumentDetail,
+    DocumentListResponse,
+    EntityRef,
+    DetailPagination
+)
+
 
 class SearchService:
 
@@ -12,30 +15,39 @@ class SearchService:
 
     def get_document_by_id(self, doc_id: str):
         db = self.get_db()
-        # Query AQL normal
+
+        # AQL Actualizado con los nuevos nombres de aristas
         aql = """
         FOR doc IN documents
             FILTER doc._key == @doc_id
 
+            // 1. Buscar Entidad (Ubicación)
             LET entity = (
-                FOR v IN 1..1 OUTBOUND doc belongs_to
+                FOR v IN 1..1 OUTBOUND doc file_located_in
                 RETURN { id: v._key, name: v.name, type: v.type, code: v.code }
             )[0]
 
+            // 2. Buscar Esquema
             LET schema = (
                 FOR v IN 1..1 OUTBOUND doc usa_esquema
                 RETURN { id: v._key, name: v.name, version: v.version }
             )[0]
 
+            // 3. Buscar Documento Requerido (Definición)
+            LET req_doc = (
+                FOR v IN 1..1 OUTBOUND doc complies_with
+                RETURN { id: v._key, name: v.name, code_default: v.code }
+            )[0]
+
             RETURN MERGE(doc, { 
                 context_entity: entity, 
-                used_schema: schema 
+                used_schema: schema,
+                required_document: req_doc
             })
         """
         cursor = db.aql.execute(aql, bind_vars={"doc_id": doc_id})
         result = list(cursor)
 
-        # --- FIX: Formato API Standard ---
         if result:
             return {
                 "success": True,
@@ -49,7 +61,7 @@ class SearchService:
                 "message": "El documento no existe o no fue encontrado."
             }
 
-    def search_documents(self, page: int = 1, page_size: int = 10, entity_id: str = None, status: str = None):
+    def search_documents(self, page: int = 1, page_size: int = 10, entity_id: str = None, process_id: str = None, status: str = None):
         db = self.get_db()
         offset = (page - 1) * page_size
 
@@ -58,18 +70,40 @@ class SearchService:
             "limit": page_size
         }
 
-        # --- Filtros Dinámicos ---
+        # --- Filtros Dinámicos de Grafo ---
         filters = []
 
         if status:
             filters.append("doc.status == @status")
             bind_vars["status"] = status
 
+        # 1. Filtro Jerárquico de ENTIDAD (Ubicación)
+        # Busca si el documento está en la entidad X, o en alguna hija de X.
+        # Ruta: Doc -> file_located_in -> Carrera -> belongs_to -> Facultad -> belongs_to -> Sede
         if entity_id:
             filters.append("""
-                (FOR v IN 1..1 OUTBOUND doc belongs_to FILTER v._key == @entity_id RETURN 1)[0] == 1
+                LENGTH(
+                    FOR entity IN 1..5 OUTBOUND doc file_located_in, belongs_to
+                    FILTER entity._key == @entity_id
+                    LIMIT 1
+                    RETURN 1
+                ) > 0
             """)
             bind_vars["entity_id"] = entity_id
+
+        # 2. Filtro Jerárquico de PROCESO (Definición)
+        # Busca si el documento cumple con un req que pertenece al proceso X.
+        # Ruta: Doc -> complies_with -> ReqDoc -> catalog_belongs_to -> SubProceso -> catalog_belongs_to -> Proceso
+        if process_id:
+            filters.append("""
+                LENGTH(
+                    FOR node IN 1..6 OUTBOUND doc complies_with, catalog_belongs_to
+                    FILTER node._key == @process_id
+                    LIMIT 1
+                    RETURN 1
+                ) > 0
+            """)
+            bind_vars["process_id"] = process_id
 
         filter_clause = "FILTER " + " AND ".join(filters) if filters else ""
 
@@ -81,10 +115,16 @@ class SearchService:
                 SORT doc.created_at DESC
                 LIMIT @offset, @limit
 
-                LET entity = (FOR v IN 1..1 OUTBOUND doc belongs_to RETURN {{ id: v._key, name: v.name, type: v.type }})[0]
+                // Recuperamos relaciones para visualización
+                LET entity = (FOR v IN 1..1 OUTBOUND doc file_located_in RETURN {{ id: v._key, name: v.name, type: v.type }})[0]
                 LET schema = (FOR v IN 1..1 OUTBOUND doc usa_esquema RETURN {{ id: v._key, name: v.name }})[0]
+                LET req_doc = (FOR v IN 1..1 OUTBOUND doc complies_with RETURN {{ id: v._key, name: v.name, code_default: v.code }})[0]
 
-                RETURN MERGE(doc, {{ context_entity: entity, used_schema: schema }})
+                RETURN MERGE(doc, {{ 
+                    context_entity: entity, 
+                    used_schema: schema,
+                    required_document: req_doc
+                }})
         )
 
         LET total_count = (
@@ -99,11 +139,11 @@ class SearchService:
         cursor = db.aql.execute(aql, bind_vars=bind_vars)
         data = list(cursor)[0]
 
-        # --- PROCESAMIENTO DE DATOS ---
+        # --- Procesamiento ---
         items_list = [DocumentDetail(**d) for d in data["items"]]
         total_items = data["total"]
 
-        # --- CÁLCULOS DE PAGINACIÓN ---
+        # --- Cálculos Paginación ---
         if total_items > 0:
             last_page = math.ceil(total_items / page_size)
         else:
@@ -112,7 +152,6 @@ class SearchService:
         to_item = offset + len(items_list)
         has_more = page < last_page
 
-        # Objeto interno de datos
         internal_data = DocumentListResponse(
             data=items_list,
             pagination=DetailPagination(
@@ -125,19 +164,21 @@ class SearchService:
             )
         )
 
-        # --- FIX: Formato API Standard ---
         return {
             "success": True,
             "data": internal_data,
             "message": "Búsqueda completada exitosamente."
         }
 
-
     def get_available_entities(self):
+        """
+        Retorna las entities (Carreras/Facultades) que TIENEN documentos asociados.
+        """
         db = self.get_db()
+        # CAMBIO: Usamos 'file_located_in'
         aql = """
         FOR doc IN documents
-            FOR entity IN 1..1 OUTBOUND doc belongs_to
+            FOR entity IN 1..1 OUTBOUND doc file_located_in
             RETURN DISTINCT {
                 id: entity._key,
                 name: entity.name,
@@ -147,11 +188,11 @@ class SearchService:
         cursor = db.aql.execute(aql)
         entities = [EntityRef(**d) for d in cursor]
 
-        # --- FIX: Formato API Standard ---
         return {
             "success": True,
             "data": entities,
-            "message": f"Se encontraron {len(entities)} entities con documentos."
+            "message": f"Se encontraron {len(entities)} entidades con documentos."
         }
+
 
 search_service = SearchService()
