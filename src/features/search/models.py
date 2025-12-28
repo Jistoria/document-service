@@ -26,6 +26,9 @@ class StorageRef(BaseModel):
     json_validated_url: Optional[str] = None
     text_url: Optional[str] = None
 
+class OwnerRef(BaseModel):
+    id: str
+    name: str
 
 # --- Respuesta Detallada de Documento ---
 
@@ -34,6 +37,7 @@ class DocumentDetail(BaseModel):
     original_filename: Optional[str] = "Sin nombre"  # Por seguridad
     status: Optional[str] = "processing"
     created_at: Optional[datetime] = None
+
 
     # Metadatos validados
     metadata: Dict[str, Any] = Field(default={}, alias="validated_metadata")

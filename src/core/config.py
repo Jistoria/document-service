@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # Kafka
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
 
+    AZURE_TENANT_ID: str = "asd"
+    AZURE_CLIENT_ID: str = "id"
+    AZURE_CLIENT_SECRET: str = "secret"
+
     class Config:
         env_file = ".env"
         extra = "ignore"

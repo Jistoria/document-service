@@ -13,6 +13,8 @@ class Database:
         if not sys_db.has_database(settings.ARANGO_DB_NAME):
             sys_db.create_database(settings.ARANGO_DB_NAME)
             print(f"✅ Base de datos '{settings.ARANGO_DB_NAME}' creada.")
+            print(f"Conxion Azure'{settings.AZURE_TENANT_ID}' creada.")
+            print(f"{settings.AZURE_CLIENT_ID}' creada.")
 
         # Retornar conexión a la DB específica
         return self.client.db(

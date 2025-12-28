@@ -20,6 +20,7 @@ class HeadOfficeSync(BaseModel):
     id: str
     name: str
     code: Optional[str] = None
+    code_numeric: Optional[str] = None
     # Mapeamos el campo JSON 'departments' a este modelo
     departments: List[DepartmentSync] = []
 

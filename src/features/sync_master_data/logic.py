@@ -11,19 +11,19 @@ async def sync_to_arango(db: StandardDatabase, data: MasterDataExport):
     # data.structure ahora es una lista, iteramos directamente
     for sede in data.structure:
         # A. Nodo Sede
-        await _upsert_entity(db, sede.id, sede.name, 'sede', sede.code)
+        await _upsert_entity(db, sede.id, sede.name, 'sede', sede.code, sede.code_numeric)
 
         for dept in sede.departments:
             # B. Nodo Facultad/Departamento
             # Guardamos 'code' (ej: FCVT) también
-            await _upsert_entity(db, dept.id, dept.name, 'facultad', dept.code)
+            await _upsert_entity(db, dept.id, dept.name, 'facultad', dept.code, dept.code_numeric)
 
             # C. Relación: Facultad -> PERTENECE_A -> Sede
             await _upsert_edge(db, dept.id, sede.id, 'pertenece_a')
 
             for car in dept.careers:
                 # D. Nodo Carrera
-                await _upsert_entity(db, car.id, car.name, 'carrera', car.code)
+                await _upsert_entity(db, car.id, car.name, 'carrera', car.code, car.code_numeric)
 
                 # E. Relación: Carrera -> PERTENECE_A -> Facultad
                 await _upsert_edge(db, car.id, dept.id, 'pertenece_a')
@@ -59,7 +59,7 @@ async def sync_to_arango(db: StandardDatabase, data: MasterDataExport):
 
 # --- Funciones Auxiliares (Helpers) ---
 
-async def _upsert_entity(db, uuid, name, type_label, code=None):
+async def _upsert_entity(db, uuid, name, type_label, code=None, code_numeric=None):
     """Crea o actualiza un nodo de entidad (Sede, Facultad, Carrera)"""
     aql = """
     UPSERT { _key: @key }
@@ -68,12 +68,14 @@ async def _upsert_entity(db, uuid, name, type_label, code=None):
         name: @name, 
         type: @type, 
         label: @name,
-        code: @code
+        code: @code,
+        code_numeric: @code_numeric,
     }
     UPDATE { 
         name: @name, 
         label: @name,
-        code: @code
+        code: @code,
+        code_numeric: @code_numeric
     }
     IN entidades
     """
@@ -81,7 +83,8 @@ async def _upsert_entity(db, uuid, name, type_label, code=None):
         'key': uuid,
         'name': name,
         'type': type_label,
-        'code': code
+        'code': code,
+        'code_numeric': code_numeric,
     })
 
 

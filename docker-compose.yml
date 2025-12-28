@@ -10,7 +10,7 @@ services:
       - .env
     depends_on:
       - arangodb
-      - minio
+      - storage
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - thesis-net # ✅ Correcto
@@ -27,9 +27,9 @@ services:
     networks:
       - thesis-net # 👈 AGREGAR ESTO (Vital)
 
-  minio:
+  storage:
     image: minio/minio:latest
-    container_name: document-minio
+    container_name: document-storage
     ports:
       - "9005:9000"
       - "9007:9001"
@@ -37,14 +37,14 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     volumes:
-      - minio_data:/data
+      - storage_data:/data
     command: server /data --console-address ":9001"
     networks:
       - thesis-net # 👈 AGREGAR ESTO (Vital)
 
 volumes:
   arango_data:
-  minio_data:
+  storage_data:
 
 networks:
   thesis-net:

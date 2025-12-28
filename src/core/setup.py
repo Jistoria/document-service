@@ -12,8 +12,7 @@ def init_arango_schema(db: StandardDatabase):
     doc_collections = [
         "entidades",  # Sedes, Facultades, Departamentos, Carreras
         "meta_schemas",  # Tus definiciones de formularios (JSON schemas)
-        "documentos",  # Los archivos en sí (metadatos)
-        "usuarios"  # Para cuando conectes los usuarios
+        "dms_users"  # Para cuando conectes los usuarios
     ]
 
     for col in doc_collections:
