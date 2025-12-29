@@ -116,6 +116,7 @@ def upsert_user_from_graph(db, *, graph_user: Dict[str, Any], source: str = "gra
         "last_name": last_name,
         "email": email,
         "status": "active",
+        "type": "user",
         "source": source,
         "job_title": graph_user.get("jobTitle"),
         "department": graph_user.get("department"),

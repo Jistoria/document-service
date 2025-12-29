@@ -4,7 +4,7 @@ from fastapi import FastAPI
 
 # Tus imports originales
 from src.features.sync_master_data.job import run_sync_job
-from src.core.setup import init_arango_schema
+from src.core.setup import init_arango_schema, init_arangosearch_views
 from src.core.database import db_instance
 from src.features.ocr_updates.consumer import consume_ocr_finalized
 from src.features.validation.router import router as validation_router
@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
     # Inicializar DB (Síncrono)
     db = db_instance.get_db()
     init_arango_schema(db)
+    init_arangosearch_views(db)
 
     # Iniciar Consumidor Kafka como tarea de fondo
     # Guardamos la tarea en una variable para poder controlarla después

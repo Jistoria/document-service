@@ -1,178 +1,165 @@
-# src/features/ocr_updates/pipeline/validation.py
 import logging
-import re
 from typing import Any, Dict, List, Tuple
-from .user_lookup import find_user_with_fallback
+import re
+from .user_lookup import lookup_user_in_microsoft_graph
 
 logger = logging.getLogger(__name__)
 
-PERSON_FIELD_KEYS = {"author", "tutor"}  # agrega más si aplica: "reviewer", etc.
 
-async def validate_metadata_strict(
-    db,
-    *,
-    schema_id: str | None,
-    ocr_data: List[Dict[str, Any]],
-) -> Tuple[Dict[str, Any], List[str]]:
-    """
-    Valida metadata OCR contra el esquema (meta_schemas) en ArangoDB.
-    - Campos tipo entidad: intenta match en colección 'entities'
-    - academic_period: regex 20XX-1/2
-    - texto genérico: inválido si > 100 chars
-    """
-    validated_output: Dict[str, Any] = {}
-    warnings: List[str] = []
+async def validate_metadata_strict(db, schema_id: str, ocr_data: List[Dict[str, Any]]) -> Tuple[
+    Dict[str, Any], List[str]]:
+    validated_output = {}
+    integrity_warnings = []
 
-    # 1) cargar definiciones de esquema
-    schema_definitions: Dict[str, Any] = {}
+    # 1. Cargar esquema
+    schema_definitions = {}
     if schema_id and db.has_collection("meta_schemas"):
-        schema_doc = db.collection("meta_schemas").get(schema_id)
-        if schema_doc:
-            for field in schema_doc.get("fields", []):
-                schema_definitions[field["fieldKey"]] = field
+        try:
+            schema_doc = db.collection("meta_schemas").get(schema_id)
+            if schema_doc:
+                for field in schema_doc.get("fields", []):
+                    schema_definitions[field["fieldKey"]] = field
+        except Exception as e:
+            logger.warning(f"⚠️ Error cargando esquema {schema_id}: {e}")
 
-    if not schema_definitions:
-        warnings.append("No se encontró definición de esquema.")
-
-    # 2) validar cada item OCR
-    for item in ocr_data or []:
+    # 2. Validar campos
+    for item in ocr_data:
         key = item.get("fieldKey")
         raw_value = item.get("response")
-        field_def = schema_definitions.get(key)
 
+        field_def = schema_definitions.get(key)
         if not field_def:
             continue
 
         label = field_def.get("label", key)
 
-        # A) Validación de entidad (match en BD)
-        if is_entity_field(field_def):
-            entity_type = (field_def.get("entityType", {}) or {}).get("key")
-            match = find_entity_match(db, raw_value, entity_type)
+        if _is_entity_field(field_def):
+            logger.info(f"🔍 Validando campo '{label}' (Key: {key}) con valor: '{raw_value}'")
+            entity_type_key = field_def.get("entityType", {}).get("key")
+
+            match = await _find_entity_match(db, raw_value, entity_type_key)
+
+            # B) Fallback a Microsoft Graph (Solo usuarios)
+            source_tag = "db_smart_match"
+            if not match and entity_type_key in ["user", "person"]:
+                logger.info(f"Fallo local para usuario. Intentando Microsoft Graph...")
+                match = await lookup_user_in_microsoft_graph(db, str(raw_value))
+                if match: source_tag = "microsoft_graph"
 
             if match:
-                validated_output[key] = {
-                    "value": {
+                # CASO 1: Es un USUARIO / PERSONA (Estructura Rca)
+                if entity_type_key in ["user", "person", "usuario"] or match.get("type") == "usuario":
+                    logger.info(match)
+                    value_data = {
+                        "id": match["_key"],
+                        "first_name": match.get("name"),  # Nombres separados
+                        "last_name": match.get("last_name"),  # Apellidos separados
+                        "email": match.get("mail") or match.get("email") or match.get("userPrincipalName")
+                    }
+
+                # CASO 2: Es una ENTIDAD ESTRUCTURAL (Facultad, Carrera)
+                else:
+                    value_data = {
                         "id": match["_key"],
                         "name": match.get("name"),
-                        "code": match.get("code"),
-                    },
-                    "is_valid": True,
-                    "source": "database_match",
-                }
-            else:
-                validated_output[key] = {
-                    "value": raw_value,
-                    "is_valid": False,
-                    "message": f"No se encontró {label} en el sistema.",
-                    "source": "ocr_raw",
-                }
-                warnings.append(f"Campo '{label}' no coincide con registros.")
-
-        # B) Validación Periodo Académico
-        elif key == "academic_period":
-            if raw_value and re.search(r"\b20\d{2}[-][1-2]\b", str(raw_value)):
-                validated_output[key] = {
-                    "value": raw_value,
-                    "is_valid": True,
-                    "source": "regex_match",
-                }
-            else:
-                validated_output[key] = {
-                    "value": raw_value,
-                    "is_valid": False,
-                    "message": "Formato inválido (Ej: 2025-1)",
-                    "source": "ocr_raw",
-                }
-
-        elif key in PERSON_FIELD_KEYS:
-            result = await find_user_with_fallback(db, str(raw_value or ""))
-            if result:
-                # Si viene de DB: guardamos _key interno
-                if result["source"] in ("db", "graph_cached"):
-                    u = result["user"]
-                    validated_output[key] = {
-                        "value": {
-                            "id": u.get("_key"),
-                            "name": f"{u.get('name', '')}".strip(),
-                            "last_name": f"{u.get('last_name', '')}".strip(),
-                            "email": u.get("email"),
-                        },
-                        "is_valid": True,
-                        "source": "db_user_match",
+                        "code": match.get("code") or match.get("code_numeric"),
+                        "type": match.get("type")
                     }
-                else:
-                    # Viene de Graph: guardamos azure_id y datos base
-                    u = result["user"]
-                    validated_output[key] = {
-                        "value": {
-                            "azure_id": u.get("azure_id"),
-                            "displayName": u.get("displayName"),
-                            "mail": u.get("mail"),
-                            "userPrincipalName": u.get("userPrincipalName"),
-                            "jobTitle": u.get("jobTitle"),
-                            "companyName": u.get("companyName"),
-                            "officeLocation": u.get("officeLocation"),
-                        },
-                        "is_valid": True,
-                        "source": "graph_user_match",
-                    }
+
+                validated_output[key] = {
+                    "value": value_data,
+                    "is_valid": True,
+                    "source": source_tag
+                }
+                logger.info(f"🎯 MATCH CONFIRMADO [{label}]: '{raw_value}' -> '{match.get('name')}'")
             else:
+                # --- AQUÍ FALTABA EL LOG ---
+                logger.warning(
+                    f"❌ NO SE ENCONTRÓ MATCH para [{label}]. Valor OCR: '{raw_value}'. Tipo buscado: {entity_type_key}")
+
                 validated_output[key] = {
                     "value": raw_value,
                     "is_valid": False,
-                    "message": "No se encontró la persona en usuarios ni en Microsoft Graph.",
-                    "source": "ocr_raw",
+                    "message": f"No se encontró {label} similar en el sistema.",
+                    "source": "ocr_raw"
                 }
-                warnings.append(f"Campo '{label}' no coincide con usuarios.")
-
-        # C) Texto genérico
+                integrity_warnings.append(f"Campo '{label}' no coincide con registros institucionales.")
         else:
-            if raw_value and len(str(raw_value)) > 100:
-                validated_output[key] = {
-                    "value": raw_value,
-                    "is_valid": False,
-                    "message": "Texto demasiado largo.",
-                    "source": "ocr_raw",
-                }
-            else:
-                validated_output[key] = {
-                    "value": raw_value,
-                    "is_valid": True,
-                    "source": "ocr_raw",
-                }
+            validated_output[key] = {
+                "value": raw_value,
+                "is_valid": True,
+                "source": "ocr_raw"
+            }
 
-    return validated_output, warnings
+    return validated_output, integrity_warnings
 
 
-# ---------------- HELPERS ----------------
-
-def is_entity_field(field_def: Dict[str, Any]) -> bool:
-    has_type_id = field_def.get("entityTypeId") is not None
-    type_input_key = (field_def.get("typeInput", {}) or {}).get("key")
-    return bool(has_type_id or type_input_key in ["entity", "faculty", "career"])
-
-
-def find_entity_match(db, text: Any, type_key: str | None):
-    if not text or len(str(text).strip()) < 3:
+async def _find_entity_match(db, text_from_ocr: Any, entity_type_key: str | None):
+    if not text_from_ocr:
         return None
 
-    text_clean = str(text).strip()
+    q_raw = str(text_from_ocr).strip().replace("\n", " ")
+    q = re.sub(r"\s+", " ", q_raw)
+    if len(q) < 3:
+        return None
 
-    aql = """
-    FOR e IN entities
-        FILTER e.type == @type_key
-        FILTER CONTAINS(LOWER(e.name), LOWER(@search)) OR e.code == @search
-        LIMIT 1
-        RETURN e
-    """
-    try:
-        cursor = db.aql.execute(
-            aql,
-            bind_vars={"type_key": type_key, "search": text_clean},
+    type_map = {
+        "career": "carrera",
+        "faculty": "facultad",
+        "department": "departamento",
+        "user": "usuario",
+        "person": "usuario",
+    }
+    db_type = type_map.get(entity_type_key, entity_type_key)
+
+    name_analyzer = "text_es"
+    type_analyzer = "norm_es"
+
+    logger.info(f"   🔎 ArangoSearch q='{q}' type='{db_type}'")
+
+    aql = f"""
+    FOR doc IN entities_search_view
+      SEARCH
+        (
+          // 1) match exacto por código
+          doc.code == @q OR doc.code_numeric == @q
+
+          // 2) phrase (más estricto)
+          OR ANALYZER(PHRASE(doc.name, @q), "{name_analyzer}")
+
+          // 3) token search (más flexible)
+          OR ANALYZER(doc.name IN TOKENS(@q, "{name_analyzer}"), "{name_analyzer}")
         )
-        result = list(cursor)
-        return result[0] if result else None
-    except Exception as ex:
-        logger.warning(f"Error buscando match entidad: {ex}")
+        AND (
+          @db_type == null
+          OR ANALYZER(doc.type == @db_type, "{type_analyzer}")
+          OR ANALYZER(doc.type == @db_type, "identity")
+        )
+      LET score = BM25(doc)
+      SORT score DESC
+      LIMIT 5
+      RETURN {{ doc: doc, score: score }}
+    """
+
+    try:
+        rows = list(db.aql.execute(aql, bind_vars={"q": q, "db_type": (db_type or None)}))
+        if not rows:
+            logger.warning("      ⚠️ ArangoSearch devolvió 0 resultados.")
+            return None
+
+        for i, r in enumerate(rows):
+            d = r["doc"]
+            logger.info(f"      👉 Cand#{i+1}: {d.get('name')} type={d.get('type')} score={r['score']}")
+
+        best = rows[0]
+        # Ajusta umbral según tus datos; 0.15–0.30 suele ser más realista que 0.1
+        return best["doc"] if best["score"] >= 0.15 else None
+
+    except Exception as e:
+        logger.warning(f"      ⚠️ Error ArangoSearch: {e}")
         return None
+
+def _is_entity_field(field_def):
+    has_type_id = field_def.get("entityTypeId") is not None
+    type_input_key = field_def.get("typeInput", {}).get("key")
+    return has_type_id or type_input_key in ["entity", "faculty", "career", "user", "person"]

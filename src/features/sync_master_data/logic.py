@@ -102,15 +102,15 @@ async def _sync_process_recursive(db, process: ProcessSync, parent_id_str: str):
 
 # --- Helpers Genéricos ---
 
-async def _upsert_entity(db, uuid, name, type_label, code=None):
+async def _upsert_entity(db, uuid, name, type_label, code=None, code_numeric=None):
     """Para Organizational Structure (entities)"""
     aql = """
     UPSERT { _key: @key }
-    INSERT { _key: @key, name: @name, type: @type, label: @name, code: @code }
-    UPDATE { name: @name, label: @name, code: @code }
+    INSERT { _key: @key, name: @name, type: @type, label: @name, code: @code, code_numeric: @code_numeric }
+    UPDATE { name: @name, label: @name, code: @code, code_numeric: @code_numeric }
     IN entities
     """
-    db.aql.execute(aql, bind_vars={'key': uuid, 'name': name, 'type': type_label, 'code': code})
+    db.aql.execute(aql, bind_vars={'key': uuid, 'name': name, 'type': type_label, 'code': code, 'code_numeric':code_numeric})
 
 
 async def _upsert_node(db, collection, uuid, name, code, extra=None):
