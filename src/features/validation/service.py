@@ -42,7 +42,7 @@ class ValidationService:
 
                 # Si tiene ID, es una entidad del sistema (Carrera/Facultad/Sede)
                 if entity_id:
-                    self._add_semantic_relation(db, task_id, entity_id, "referencia_a")
+                    self._add_semantic_relation(db, task_id, entity_id, "references")
 
         return {"status": "success", "message": "Documento validado y referencias creadas"}
 
