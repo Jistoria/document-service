@@ -1,26 +1,27 @@
-from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+from fastapi import APIRouter, HTTPException, Query, Depends
+from typing import Optional, List
 from .models import DocumentDetailResponse, DocumentListAPIResponse, EntityListAPIResponse
 from .service import search_service
+from src.core.security.permission import RequirePermission
 # Importa tu servicio de storage aquí
 from src.core.storage import storage_instance
 router = APIRouter(prefix="/documents", tags=["Search & Retrieval"])
 
 
-@router.get("/", response_model=DocumentListAPIResponse)
+@router.get("/", response_model=DocumentListAPIResponse, )
 async def get_documents(
         page: int = 1,
         limit: int = 10,
         entity_id: Optional[str] = Query(None, description="Filtro Jerárquico: Busca en esta entidad Y en sus hijas (Ej: Filtrar por Facultad trae documentos de sus Carreras)."),
         process_id: Optional[str] = Query(None, description="Filtro Jerárquico: Busca por Proceso, Categoría o Documento Requerido."),
-        status: Optional[str] = Query(None,
-                                      description="Filtrar por estado (ej: attention_required, validated, confirmed)")
+        status: Optional[str] = Query(None, description="Filtrar por estado (ej: attention_required, validated, confirmed)"),
+        allowed_teams: List[str] = Depends(RequirePermission("dms.document.read"))
 ):
     """
     Lista documentos paginados con formato estándar.
     Permite filtrar por estado y ubicación (Entidad).
     """
-    return search_service.search_documents(page, limit, entity_id, process_id, status)
+    return search_service.search_documents(page, limit, entity_id, process_id, status, allowed_teams)
 
 
 @router.get("/catalogs/entities", response_model=EntityListAPIResponse)

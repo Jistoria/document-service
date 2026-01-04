@@ -20,12 +20,12 @@ async def sync_to_arango(db: StandardDatabase, data: MasterDataExport):
 # --- Lógica de Estructura (Ya la tenías, encapsulada para orden) ---
 async def _sync_structure(db, structure):
     for sede in structure:
-        await _upsert_entity(db, sede.id, sede.name, 'sede', sede.code)
+        await _upsert_entity(db, sede.id, sede.name, 'sede', sede.code, sede.code_numeric)
         for dept in sede.departments:
-            await _upsert_entity(db, dept.id, dept.name, 'facultad', dept.code)
+            await _upsert_entity(db, dept.id, dept.name, 'facultad', dept.code, dept.code_numeric)
             await _upsert_edge(db, dept.id, sede.id, 'belongs_to', 'entities')  # Child -> Parent
             for car in dept.careers:
-                await _upsert_entity(db, car.id, car.name, 'carrera', car.code)
+                await _upsert_entity(db, car.id, car.name, 'carrera', car.code, car.code_numeric)
                 await _upsert_edge(db, car.id, dept.id, 'belongs_to', 'entities')
 
 

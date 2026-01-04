@@ -2,6 +2,7 @@ import math
 from src.core.database import db_instance
 import logging
 from arango.exceptions import ArangoError
+from typing import Optional, List
 
 logger = logging.getLogger(__name__)
 from .models import (
@@ -72,9 +73,31 @@ class SearchService:
             entity_id: str = None,
             process_id: str = None,
             status: str = None,
+            allowed_teams: List[str] = None,
     ):
         try:
             db = self.get_db()
+
+            if allowed_teams and "*" not in allowed_teams:
+                valid_owner_ids = self._resolve_team_codes_to_uuids(db, allowed_teams)
+
+                # Si tenía permisos en Redis (ej: 'CARR:999') pero esa carrera
+                # NO existe en Arango, valid_owner_ids estará vacío.
+                # En ese caso, debemos bloquear el acceso (Fail Safe).
+                if not valid_owner_ids:
+                    return {
+                        "success": True,
+                        "data": DocumentListResponse(
+                        data=[],
+                        pagination=DetailPagination(
+                            currentPage=page, lastPage=1, perPage=page_size,
+                            total=0, to=0, hasMorePages=False
+                        )
+                    ),
+                        "message": "No tienes permisos sobre ninguna entidad válida."
+                    }
+
+
             offset = (page - 1) * page_size
 
             bind_vars = {
@@ -84,6 +107,28 @@ class SearchService:
 
             # --- Filtros Dinámicos ---
             filters = []
+
+            # 1. FILTRO DE SEGURIDAD (Permisos)
+            # Si allowed_teams es None o vacío, bloqueamos todo por seguridad (Fail-Safe)
+            if allowed_teams is None:
+                allowed_teams = []
+
+            if "*" not in allowed_teams:
+                # Lógica:
+                # El documento está en una Entidad (ej: Carrera).
+                # Esa Carrera pertenece a una Facultad.
+                # El usuario puede tener permiso en la Carrera (Directo) o en la Facultad (Heredado).
+                # Buscamos 1..2 niveles hacia arriba para ver si alguna entidad padre está en allowed_teams.
+
+                filters.append("""
+                                LENGTH(
+                                    FOR owner IN 1..2 OUTBOUND doc file_located_in, belongs_to
+                                    FILTER owner._key IN @valid_owner_ids
+                                    LIMIT 1
+                                    RETURN 1
+                                ) > 0
+                            """)
+                bind_vars["valid_owner_ids"] = valid_owner_ids
 
             if status:
                 filters.append("doc.status == @status")
@@ -113,6 +158,7 @@ class SearchService:
                 """)
                 bind_vars["process_id"] = process_id
 
+            # Unimos todos los filtros con AND
             filter_clause = "FILTER " + " AND ".join(filters) if filters else ""
 
             # --- AQL ---
@@ -158,7 +204,19 @@ class SearchService:
             result = list(cursor)
 
             if not result:
-                raise ValueError("La consulta no devolvió resultados.")
+                # Si no hay resultados (página vacía), no es un error, es data vacía
+                # Ajustamos para devolver lista vacía en lugar de explotar
+                return {
+                    "success": True,
+                    "data": DocumentListResponse(
+                        data=[],
+                        pagination=DetailPagination(
+                            currentPage=page, lastPage=1, perPage=page_size,
+                            total=0, to=0, hasMorePages=False
+                        )
+                    ),
+                    "message": "No se encontraron documentos."
+                }
 
             data = result[0]
 
@@ -228,5 +286,56 @@ class SearchService:
             "message": f"Se encontraron {len(entities)} entidades con documentos."
         }
 
+    def _resolve_team_codes_to_uuids(self, db, allowed_teams: List[str]) -> List[str]:
+        """
+        Traduce los códigos de permisos (ej: 'CARR:213.11', 'FAC:10')
+        a los _key (UUIDs) reales de las entidades en ArangoDB.
+        """
+        if not allowed_teams or "*" in allowed_teams:
+            return []
+
+        # 1. Estructura de mapeo (Prefijo Redis -> type en Arango)
+        # Ajusta los valores de la derecha según lo que tengas en tu campo 'e.type'
+        type_map = {
+            "CARR": "carrera",
+            "FAC": "facultad",
+            "DEP": "departamento"
+        }
+
+        # 2. Preparar filtros para AQL
+        # Convertimos ['CARR:213.11'] en [{'type': 'carrera', 'code': '213.11'}]
+        criteria = []
+        for team in allowed_teams:
+            if ":" in team:
+                prefix, code = team.split(":", 1)
+                if prefix in type_map:
+                    criteria.append({
+                        "type": type_map[prefix],
+                        "code": code
+                    })
+
+        if not criteria:
+            return []
+
+        logger.info(f"Criteria: {criteria}")
+
+        # 3. Consulta de Traducción (Muy rápida porque usa índices)
+        # Buscamos por code OR code_numeric para ser robustos
+        aql = """
+        FOR criteria IN @criteria
+            FOR e IN entities
+                FILTER e.type == criteria.type 
+                   AND (e.code == criteria.code OR e.code_numeric == criteria.code)
+                RETURN e._key
+        """
+
+        cursor = db.aql.execute(aql, bind_vars={"criteria": criteria})
+
+        logger.info(f"Cursor: {cursor}")
+
+        resolved_ids = list(cursor)
+
+        logger.info(f"🔑 Permisos traducidos: {allowed_teams} -> {resolved_ids}")
+        return resolved_ids
 
 search_service = SearchService()

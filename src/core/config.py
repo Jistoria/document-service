@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     AZURE_CLIENT_ID: str = "id"
     AZURE_CLIENT_SECRET: str = "secret"
 
+    AUTH_REDIS_URL: str = "redis://localhost:6379"
+
     class Config:
         env_file = ".env"
         extra = "ignore"
