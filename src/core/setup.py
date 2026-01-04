@@ -2,6 +2,8 @@ import logging
 import json
 from arango.database import StandardDatabase
 from arango.exceptions import ArangoError
+from minio import Minio
+from minio.error import S3Error
 
 logger = logging.getLogger(__name__)
 
@@ -152,3 +154,26 @@ def ensure_analyzer(db, name: str, analyzer_type: str, properties: dict, feature
     db.create_analyzer(name, analyzer_type=analyzer_type, properties=properties, features=features)
     logger.info(f"✅ Analyzer creado: {name}")
     return name
+
+
+def configure_minio_cors(client: Minio, bucket_name: str):
+    print(f"🔧 Configurando CORS para el bucket: {bucket_name}")
+
+    # Esta política permite que localhost:3000 (tu Vue) lea archivos
+    cors_config = {
+        "CORSRules": [
+            {
+                "AllowedHeaders": ["*"],
+                "AllowedMethods": ["GET", "HEAD"],
+                "AllowedOrigins": ["http://localhost:3000", "http://127.0.0.1:3000"],  # Tu frontend
+                "ExposeHeaders": ["ETag"],
+                "MaxAgeSeconds": 3000
+            }
+        ]
+    }
+
+    try:
+        client.set_bucket_cors(bucket_name, cors_config)
+        print("✅ CORS configurado exitosamente.")
+    except S3Error as e:
+        print(f"❌ Error configurando CORS: {e}")

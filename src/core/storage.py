@@ -2,7 +2,7 @@ from minio import Minio
 from minio.error import S3Error
 import os
 import io
-
+from datetime import timedelta
 
 class StorageService:
     def __init__(self):
@@ -45,22 +45,26 @@ class StorageService:
             print(f"❌ Error subiendo archivo a MinIO: {e}")
             raise e
 
-    def get_presigned_url(self, partial_path: str):
-        """
-        Genera una URL temporal para ver el archivo (útil para el frontend luego)
-        """
-        try:
-            # Separar bucket y objeto
-            parts = partial_path.split("/", 1)
-            if len(parts) < 2: return None
+    def get_presigned_url(self, object_path: str, expires_in_minutes: int = 60) -> str:
+        # 1. CORRECCIÓN DE RUTA: Quitamos el bucket si viene en el path
+        # Si path es "documents-storage/stage/file.pdf", lo dejamos en "stage/file.pdf"
+        clean_object_path = object_path.replace(f"{self.bucket_name}/", "", 1)
 
-            return self.client.get_presigned_url(
-                "GET",
-                parts[0],  # Bucket
-                parts[1]  # Object Path
+        try:
+            # 2. GENERACIÓN DE URL
+            # Nota: Minio firma usando el endpoint configurado en 'self.client'.
+            # Si self.client apunta a "minio:9000", la URL saldrá con "minio:9000".
+            url = self.client.presigned_get_object(
+                bucket_name=self.bucket_name,
+                object_name=clean_object_path,
+                expires=timedelta(minutes=expires_in_minutes)
             )
-        except Exception:
-            return None
+
+            return url
+
+        except Exception as e:
+            print(f"Error generando URL firmada: {e}")
+            return ""
 
 
 storage_instance = StorageService()

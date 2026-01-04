@@ -2,7 +2,8 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
 from .models import DocumentDetailResponse, DocumentListAPIResponse, EntityListAPIResponse
 from .service import search_service
-
+# Importa tu servicio de storage aquí
+from src.core.storage import storage_instance
 router = APIRouter(prefix="/documents", tags=["Search & Retrieval"])
 
 

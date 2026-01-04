@@ -1,14 +1,16 @@
 import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 # Tus imports originales
 from src.features.sync_master_data.job import run_sync_job
-from src.core.setup import init_arango_schema, init_arangosearch_views
+from src.core.setup import init_arango_schema, init_arangosearch_views, configure_minio_cors
 from src.core.database import db_instance
 from src.features.ocr_updates.consumer import consume_ocr_finalized
 from src.features.validation.router import router as validation_router
 from src.features.search.router import router as search_router
+from src.features.storage.router import router as storage_router
 from src.core.storage import storage_instance
 
 
@@ -46,8 +48,25 @@ async def lifespan(app: FastAPI):
 
 # Pasamos el lifespan al constructor de la app
 app = FastAPI(title="Document Management Service", lifespan=lifespan)
+
+origins = [
+    "http://localhost:3000",    # Tu Frontend Vue
+    "http://127.0.0.1:3000",    # Vue (por si acaso)
+    "*"                         # (Opcional) Permitir a todos en desarrollo
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,      # Lista de orígenes permitidos
+    allow_credentials=True,     # Permitir cookies/tokens
+    allow_methods=["*"],        # Permitir GET, POST, PUT, DELETE, etc.
+    allow_headers=["*"],        # Permitir todos los headers
+)
+
 app.include_router(validation_router)
 app.include_router(search_router)
+app.include_router(storage_router)
+
 @app.get("/")
 def health_check():
     return {"status": "ok", "service": "FastAPI + ArangoDB + MinIO"}

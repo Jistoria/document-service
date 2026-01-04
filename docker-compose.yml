@@ -36,6 +36,7 @@ services:
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_API_CORS_ALLOW_ORIGIN="http://localhost:3000,http://127.0.0.1:3000,http://localhost:1420"
     volumes:
       - storage_data:/data
     command: server /data --console-address ":9001"
