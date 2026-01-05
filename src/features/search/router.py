@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from .models import DocumentDetailResponse, DocumentListAPIResponse, EntityListAPIResponse
 from .service import search_service
-from src.core.security.permission import RequirePermission
+from .dependencies import resolve_status_and_teams
 # Importa tu servicio de storage aquí
 from src.core.storage import storage_instance
 router = APIRouter(prefix="/documents", tags=["Search & Retrieval"])
@@ -15,13 +15,22 @@ async def get_documents(
         entity_id: Optional[str] = Query(None, description="Filtro Jerárquico: Busca en esta entidad Y en sus hijas (Ej: Filtrar por Facultad trae documentos de sus Carreras)."),
         process_id: Optional[str] = Query(None, description="Filtro Jerárquico: Busca por Proceso, Categoría o Documento Requerido."),
         status: Optional[str] = Query(None, description="Filtrar por estado (ej: attention_required, validated, confirmed)"),
-        allowed_teams: List[str] = Depends(RequirePermission("dms.document.read"))
+        search_context: Tuple[Optional[str], List[str]] = Depends(resolve_status_and_teams)
 ):
     """
     Lista documentos paginados con formato estándar.
     Permite filtrar por estado y ubicación (Entidad).
     """
-    return search_service.search_documents(page, limit, entity_id, process_id, status, allowed_teams)
+    resolved_status, allowed_teams = search_context
+
+    return search_service.search_documents(
+        page=page,
+        page_size=limit,
+        entity_id=entity_id,
+        process_id=process_id,
+        status=resolved_status,  # Usamos el status inteligente
+        allowed_teams=allowed_teams  # Usamos los equipos filtrados
+    )
 
 
 @router.get("/catalogs/entities", response_model=EntityListAPIResponse)

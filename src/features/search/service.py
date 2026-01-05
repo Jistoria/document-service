@@ -331,7 +331,6 @@ class SearchService:
 
         cursor = db.aql.execute(aql, bind_vars={"criteria": criteria})
 
-        logger.info(f"Cursor: {cursor}")
 
         resolved_ids = list(cursor)
 
