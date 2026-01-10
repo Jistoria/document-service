@@ -33,7 +33,8 @@ class ValidationService:
             RETURN schema
         """
         cursor = db.aql.execute(aql, bind_vars={"doc_id": doc_id})
-        schema = list(cursor)[0] if cursor.count() > 0 else None
+        schemas = list(cursor)
+        schema = schemas[0] if len(schemas) > 0 else None
 
         if not schema:
             # Si no hay esquema, validación genérica

@@ -1,6 +1,9 @@
+import logging
 from fastapi import APIRouter, HTTPException
 from .models import ValidationRequest, ValidationReportResponse
 from .service import validation_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["Validation & Workflow"])
 
@@ -17,7 +20,7 @@ async def check_validation_rules(doc_id: str, payload: ValidationRequest):
     try:
         return await validation_service.dry_run_validation(doc_id, payload)
     except Exception as e:
-        print(f"Error checking validation: {e}")
+        logger.exception("Error checking validation")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -32,5 +35,5 @@ async def validate_document(doc_id: str, payload: ValidationRequest):
     try:
         return await validation_service.confirm_validation(doc_id, payload)
     except Exception as e:
-        print(f"Error validating: {e}")
+        logger.exception("Error validating document")
         raise HTTPException(status_code=500, detail=str(e))
