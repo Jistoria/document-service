@@ -106,3 +106,51 @@ class MicrosoftGraphClient:
             data: Dict[str, Any] = resp.json()
 
         return data.get("value", []) or []
+    async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific user by their Azure AD ID (guid)."""
+        try:
+            token = await self._get_token()
+            headers = {"Authorization": f"Bearer {token}"}
+            url = f"{self._graph_base}/users/{user_id}"
+            
+            params = {
+                "$select": "id,displayName,mail,userPrincipalName,givenName,surname,jobTitle,department,companyName,officeLocation"
+            }
+            
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, params=params, headers=headers, timeout=30.0)
+                if resp.status_code == 404:
+                    return None
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as e:
+            logger.error(f"Error getting user by ID {user_id}: {e}")
+            return None
+
+    async def search_users_by_email(self, email: str) -> List[Dict[str, Any]]:
+        """Search users by exact email match."""
+        try:
+            token = await self._get_token()
+            email_escaped = self._escape_odata(email)
+            
+            params = {
+                "$filter": f"mail eq '{email_escaped}' or userPrincipalName eq '{email_escaped}'",
+                "$select": "id,displayName,mail,userPrincipalName,givenName,surname,jobTitle,department,companyName,officeLocation",
+                "$top": "5"
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "ConsistencyLevel": "eventual",
+            }
+            
+            url = f"{self._graph_base}/users"
+            
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, params=params, headers=headers, timeout=30.0)
+                resp.raise_for_status()
+                data = resp.json()
+                return data.get("value", []) or []
+        except Exception as e:
+            logger.error(f"Error searching user by email {email}: {e}")
+            return []
