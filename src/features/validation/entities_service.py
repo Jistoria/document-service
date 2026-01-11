@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from .users_service import UsersService
-from .utils import is_user_type, looks_like_user_payload, map_type_to_collection
+from .utils import entity_types_from_schema, is_user_type, looks_like_user_payload, map_type_to_collection
 
 logger = logging.getLogger(__name__)
 
@@ -11,18 +11,22 @@ class EntitiesService:
     def __init__(self, users_service: UsersService):
         self._users_service = users_service
 
-    async def ensure_entities_exist(self, db, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    async def ensure_entities_exist(self, db, metadata: Dict[str, Any], *, schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        entity_type_map = entity_types_from_schema(schema) if schema else {}
         for key, item in (metadata or {}).items():
             if not isinstance(item, dict):
                 continue
 
-            val_obj = item.get("value")
-            if not isinstance(val_obj, dict):
-                continue
+            if "value" in item and isinstance(item.get("value"), dict):
+                val_obj = item["value"]
+                target = item["value"]
+            else:
+                val_obj = item
+                target = metadata[key]
 
             entity_id = val_obj.get("id")
             name = val_obj.get("name") or val_obj.get("display_name")
-            type_str = val_obj.get("type")
+            type_str = val_obj.get("type") or entity_type_map.get(key)
 
             if entity_id or not name:
                 continue
@@ -35,8 +39,8 @@ class EntitiesService:
                     guid_ms=val_obj.get("guid_ms"),
                 )
                 if user_doc:
-                    metadata[key]["value"].update(self._users_service.build_metadata_from_user(user_doc))
-                    self._remove_name_fragments(metadata[key]["value"])
+                    target.update(self._users_service.build_metadata_from_user(user_doc))
+                    self._remove_name_fragments(target)
                     logger.info("✨ Usuario encontrado/actualizado: %s", name)
                     continue
 
@@ -45,19 +49,19 @@ class EntitiesService:
                     display_name=name,
                     email=val_obj.get("email"),
                 )
-                metadata[key]["value"].update(
+                target.update(
                     {
                         "id": new_id,
                         "type": "user",
                         "display_name": name,
                     }
                 )
-                self._remove_name_fragments(metadata[key]["value"])
+                self._remove_name_fragments(target)
                 logger.info("✨ Usuario creado al vuelo: %s (%s)", name, new_id)
                 continue
 
             new_id = await self._create_new_entity_node(db, name, type_str)
-            metadata[key]["value"]["id"] = new_id
+            target["id"] = new_id
             logger.info("✨ Entidad creada al vuelo: %s (%s)", name, new_id)
 
         return metadata

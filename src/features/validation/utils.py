@@ -44,6 +44,14 @@ def allowed_keys_from_schema(schema: Dict[str, Any]) -> set[str]:
     return {f.get("fieldKey") for f in (schema.get("fields") or []) if f.get("fieldKey")}
 
 
+def entity_types_from_schema(schema: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    return {
+        field.get("fieldKey"): (field.get("entityType") or {}).get("key")
+        for field in (schema.get("fields") or [])
+        if field.get("fieldKey")
+    }
+
+
 def filter_entity_fields(val: Dict[str, Any]) -> Dict[str, Any]:
     """
     Deja SOLO lo útil de dominio (nada de is_valid/source/message/etc).
