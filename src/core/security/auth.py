@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import Depends, Header, HTTPException, Request
 import redis.asyncio as aioredis
 
+
 # Ajusta según tu variable de entorno o docker-compose.
 REDIS_URL: str = os.getenv("AUTH_REDIS_URL", "redis://auth-redis:6379/0")
 

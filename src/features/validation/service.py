@@ -36,6 +36,8 @@ class ValidationService:
         schemas = list(cursor)
         schema = schemas[0] if len(schemas) > 0 else None
 
+        logger.info(f"schema: {schema}")
+
         if not schema:
             # Si no hay esquema, validación genérica
             return {"score": 100, "is_ready": True, "fields_report": [], "summary_warnings": ["Sin esquema definido"]}
@@ -47,12 +49,14 @@ class ValidationService:
 
         input_data = payload.metadata  # Lo que envió el usuario
 
+        logger.info(input_data)
+
         for field in schema.get("fields", []):
             key = field["fieldKey"]
             label = field.get("label", key)
             is_required = field.get("isRequired", False)
             data_type = field.get("dataType", "string")  # string, json, date...
-            entity_type = field.get("entityType", {}).get("key")  # user, career...
+            entity_type = (field.get("entityType") or {}).get("key")
 
             value = input_data.get(key)
 
