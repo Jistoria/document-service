@@ -1,12 +1,18 @@
 import logging
-from typing import Dict, Any, List
+
+# Importamos tus repositorios existentes para chequear existencia
+from src.features.ocr_updates.pipeline.users_repository import find_user_by_guid_or_email
+from src.features.ocr_updates.pipeline.validation import _find_entity_match  # Reutilizamos tu lógica de búsqueda
+
+logger = logging.getLogger(__name__)
+
+
+import logging
+from typing import Dict, Any
 from datetime import datetime
 import re
 
 from src.core.database import db_instance
-# Importamos tus repositorios existentes para chequear existencia
-from src.features.ocr_updates.pipeline.users_repository import find_user_by_guid_or_email
-from src.features.ocr_updates.pipeline.validation import _find_entity_match  # Reutilizamos tu lógica de búsqueda
 from src.features.validation.models import ValidationRequest
 
 logger = logging.getLogger(__name__)
@@ -159,52 +165,209 @@ class ValidationService:
         }
         return mapping.get(entity_type)
 
-    def confirm_validation(self, task_id: str, payload: ValidationRequest):
+    # ---------------------------------------------------------------------
+    # HELPERS: schema + sanitización estricta (lo importante para tu caso)
+    # ---------------------------------------------------------------------
+    def _get_schema_for_document(self, db, doc_id: str) -> Dict[str, Any] | None:
+        """
+        Obtiene el esquema vinculado al documento por la arista 'usa_esquema'.
+        """
+        aql = """
+        FOR doc IN documents
+            FILTER doc._key == @doc_id
+            FOR schema IN 1..1 OUTBOUND doc usa_esquema
+            RETURN schema
+        """
+        cursor = db.aql.execute(aql, bind_vars={"doc_id": doc_id})
+        schemas = list(cursor)
+        return schemas[0] if schemas else None
+
+    def _allowed_keys_from_schema(self, schema: Dict[str, Any]) -> set[str]:
+        return {f.get("fieldKey") for f in (schema.get("fields") or []) if f.get("fieldKey")}
+
+    def _filter_entity_fields(self, val: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Deja SOLO lo útil de dominio (nada de is_valid/source/message/etc).
+        """
+        # Caso usuario/persona (Graph o dms_users)
+        if any(k in val for k in ("first_name", "last_name", "display_name", "email")):
+            display_name = val.get("display_name")
+            if not display_name:
+                fn = (val.get("first_name") or "").strip()
+                ln = (val.get("last_name") or "").strip()
+                display_name = f"{fn} {ln}".strip() or None
+
+            out = {
+                "id": val.get("id"),
+                "display_name": display_name,
+                "email": val.get("email"),
+            }
+            return {k: v for k, v in out.items() if v is not None}
+
+        # Caso entidad institucional (facultad/carrera/departamento/etc)
+        out = {
+            "id": val.get("id"),
+            "name": val.get("name"),
+            "code": val.get("code"),
+            "type": val.get("type"),
+        }
+        return {k: v for k, v in out.items() if v is not None}
+
+    def _sanitize_metadata(self, raw_data: Dict[str, Any], allowed_keys: set[str] | None = None) -> Dict[str, Any]:
+        """
+        Normaliza y limpia la metadata:
+        - Elimina wrapper UI (is_valid/source/message/etc)
+        - Para entidades deja solo campos permitidos
+        - Si item.is_valid == False => guarda None (o omite, tú eliges)
+        - Si allowed_keys viene, SOLO guarda keys presentes en el schema
+        """
+        clean: Dict[str, Any] = {}
+
+        for key, item in (raw_data or {}).items():
+            if allowed_keys is not None and key not in allowed_keys:
+                continue
+
+            # Primitivo
+            if not isinstance(item, dict):
+                clean[key] = item
+                continue
+
+            # Wrapper UI típico
+            if "value" in item:
+                # Política para inválidos:
+                # - opción A: omitirlo => `continue`
+                # - opción B: setearlo a None (recomendado si el schema lo espera)
+                if item.get("is_valid") is False:
+                    clean[key] = None
+                    continue
+
+                val = item.get("value")
+
+                # value es dict (entidad) -> filtrar estricto
+                if isinstance(val, dict):
+                    clean[key] = self._filter_entity_fields(val)
+                    continue
+
+                # value es None, pero hay datos arriba (ej tutor con id/email/display_name)
+                if val is None:
+                    minimal = {
+                        "id": item.get("id"),
+                        "display_name": item.get("display_name"),
+                        "email": item.get("email"),
+                    }
+                    minimal = {k: v for k, v in minimal.items() if v}
+                    clean[key] = minimal if minimal else None
+                    continue
+
+                # value primitivo
+                clean[key] = val
+                continue
+
+            # Si no es wrapper, y es dict: lo dejas tal cual (o lo podrías normalizar)
+            clean[key] = item
+
+        return clean
+
+    # ---------------------------------------------------------------------
+    # TU CONFIRM: reemplázalo por este (copy/paste)
+    # ---------------------------------------------------------------------
+    async def confirm_validation(self, task_id: str, payload: ValidationRequest):
         db = self.get_db()
 
-        # 1. Actualizar Metadatos del JSON (Igual que antes)
-        # Esto es lo que ve el usuario en el formulario
+        # 1) data cruda del frontend
+        raw_metadata = payload.metadata or {}
+
+        # 2) Asegurar entidades (si tu front manda type y no manda id)
+        metadata_with_ids = await self._ensure_entities_exist(db, raw_metadata)
+
+        # 3) Leer schema para filtrar keys válidas
+        schema = self._get_schema_for_document(db, task_id)
+        allowed_keys = self._allowed_keys_from_schema(schema) if schema else None
+
+        # 4) Sanitización FINAL (limpia y filtrada por schema)
+        clean_metadata = self._sanitize_metadata(metadata_with_ids, allowed_keys=allowed_keys)
+
+        # 5) Update final del documento (IMPORTANTE: además de setear, borra basura de antes)
+        # - Eliminamos validated_metadata anterior antes de setearlo (para evitar residuos)
         update_doc_aql = """
-        UPDATE @key WITH { 
-            validated_metadata: @metadata,
-            status: 'confirmed',
-            integrity_warnings: [],
-            manually_validated_at: DATE_NOW()
-        } IN documents
-        RETURN NEW
+        FOR d IN documents
+            FILTER d._key == @key
+            UPDATE d WITH {
+                validated_metadata: @clean_data,
+                status: 'confirmed',
+                integrity_warnings: [],
+                manually_validated_at: DATE_NOW(),
+                is_locked: true
+            } IN documents
+            RETURN NEW
         """
-        db.aql.execute(update_doc_aql, bind_vars={
-            "key": task_id,
-            "metadata": payload.validated_metadata
-        })
 
-        # 2. ENRIQUECIMIENTO SEMÁNTICO (Sin borrar padres)
-        # Si el usuario validó campos que resultaron ser Entidades (Carrera, Facultad),
-        # creamos una relación de "referencia" o "participación".
+        db.aql.execute(update_doc_aql, bind_vars={"key": task_id, "clean_data": clean_metadata})
 
-        # Extraemos las entities validadas del payload
-        validated_data = payload.validated_metadata
+        # 6) Enriquecimiento (relaciones semánticas)
+        for k, item in clean_metadata.items():
+            if isinstance(item, dict) and item.get("id"):
+                # ojo: aquí tu edge asume entities/, pero users van a dms_users/
+                # si quieres, lo ajustamos luego. Por ahora mantengo tu lógica.
+                self._add_semantic_relation(db, task_id, item.get("id"), "references")
 
-        for key, item in validated_data.items():
-            # Verificamos si el item es válido y tiene estructura de entidad (tiene ID)
-            if item.get("is_valid") and isinstance(item.get("value"), dict):
-                entity_info = item["value"]
-                entity_id = entity_info.get("id")
+        return {"status": "success", "message": "Documento confirmado y metadata limpiada."}
 
-                # Si tiene ID, es una entidad del sistema (Carrera/Facultad/Sede)
-                if entity_id:
-                    self._add_semantic_relation(db, task_id, entity_id, "references")
+    # ---------------------------------------------------------------------
+    # LO QUE YA TENÍAS (sin cambios), solo lo dejo para que pegue completo
+    # ---------------------------------------------------------------------
+    async def _ensure_entities_exist(self, db, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Crea entidades nuevas si value es dict, no tiene id, pero tiene name y type.
+        """
+        for key, item in (metadata or {}).items():
+            if not isinstance(item, dict):
+                continue
 
-        return {"status": "success", "message": "Documento validado y referencias creadas"}
+            val_obj = item.get("value")
+            if isinstance(val_obj, dict):
+                entity_id = val_obj.get("id")
+                name = val_obj.get("name") or val_obj.get("display_name")
+                type_str = val_obj.get("type")
+
+                if not entity_id and name and type_str:
+                    new_id = await self._create_new_entity_node(db, name, type_str)
+                    metadata[key]["value"]["id"] = new_id
+                    logger.info(f"✨ Entidad creada al vuelo: {name} ({new_id})")
+
+        return metadata
+
+    async def _create_new_entity_node(self, db, name: str, type_str: str) -> str:
+        collection = self._map_type_to_collection(type_str) or "entities"
+        aql = f"""
+        INSERT {{
+            name: @name,
+            type: @type,
+            created_at: DATE_NOW(),
+            source: 'manual_validation_creation'
+        }} IN {collection}
+        RETURN NEW._key
+        """
+        cursor = db.aql.execute(aql, bind_vars={"name": name, "type": type_str})
+        return list(cursor)[0]
+
+    def _map_type_to_collection(self, entity_type):
+        mapping = {
+            "user": "dms_users",
+            "person": "dms_users",
+            "faculty": "entities",
+            "career": "entities",
+            "department": "entities",
+            # tus tipos reales:
+            "facultad": "entities",
+            "carrera": "entities",
+        }
+        return mapping.get(entity_type)
 
     def _add_semantic_relation(self, db, task_id, entity_id, edge_name):
         """
-        Crea una arista secundaria (NO de pertenencia) para indicar relación/participación.
-        Evita duplicados: Si ya pertenece a esa entidad, no crea la referencia para no redundar.
+        Tu lógica original (la dejo igual).
         """
-
-        # Verificar si YA existe una relación de 'belongs_to' con esa misma entidad
-        # (Para no decir que "Software referencia a Software" si ya es su dueño)
         check_owner_aql = """
         FOR doc IN documents
             FILTER doc._key == @task_id
@@ -213,18 +376,16 @@ class ValidationService:
             RETURN 1
         """
         is_owner = list(db.aql.execute(check_owner_aql, bind_vars={"task_id": task_id, "entity_id": entity_id}))
-
         if is_owner:
-            return  # Si ya es el dueño, no hacemos nada extra.
+            return
 
-        # Si no es el dueño, creamos la relación de referencia/participación
         if not db.has_collection(edge_name):
             db.create_collection(edge_name, edge=True)
 
         upsert_edge_aql = f"""
         UPSERT {{ _from: CONCAT('documents/', @task_id), _to: CONCAT('entities/', @entity_id) }}
-        INSERT {{ 
-            _from: CONCAT('documents/', @task_id), 
+        INSERT {{
+            _from: CONCAT('documents/', @task_id),
             _to: CONCAT('entities/', @entity_id),
             created_at: DATE_NOW(),
             source: 'manual_validation'
@@ -233,10 +394,9 @@ class ValidationService:
         IN {edge_name}
         """
 
-        db.aql.execute(upsert_edge_aql, bind_vars={
-            "task_id": task_id,
-            "entity_id": entity_id
-        })
+        db.aql.execute(upsert_edge_aql, bind_vars={"task_id": task_id, "entity_id": entity_id})
 
 
 validation_service = ValidationService()
+
+
