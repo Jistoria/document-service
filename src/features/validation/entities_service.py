@@ -13,25 +13,56 @@ class EntitiesService:
 
     async def ensure_entities_exist(self, db, metadata: Dict[str, Any], *, schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         entity_type_map = entity_types_from_schema(schema) if schema else {}
+
+        logger.info("entity_type_map: %s", entity_type_map)
+        logger.info("📋 Processing metadata keys: %s", list(metadata.keys()) if metadata else [])
+        
         for key, item in (metadata or {}).items():
+            logger.info("🔍 Processing key='%s', item type=%s", key, type(item).__name__)
+            
             if not isinstance(item, dict):
+                logger.info("  ⏭️  Skipping '%s': not a dict", key)
                 continue
 
             if "value" in item and isinstance(item.get("value"), dict):
                 val_obj = item["value"]
                 target = item["value"]
+                logger.info("  📦 Found wrapped value for '%s'", key)
             else:
                 val_obj = item
                 target = metadata[key]
+                logger.info("  📦 Using direct value for '%s'", key)
 
             entity_id = val_obj.get("id")
             name = val_obj.get("name") or val_obj.get("display_name")
             type_str = val_obj.get("type") or entity_type_map.get(key)
+            
+            logger.info("  🏷️  key='%s': id=%s, name=%s, type=%s", key, entity_id, name, type_str)
 
-            if entity_id or not name:
+            # Skip only if no name is provided
+            if not name:
+                logger.info("  ⏭️  Skipping '%s': no name provided", key)
                 continue
 
-            if is_user_type(type_str) or looks_like_user_payload(val_obj):
+            is_user_type_result = is_user_type(type_str)
+            looks_like_user_result = looks_like_user_payload(val_obj)
+            logger.info("  🔎 Checking if '%s' is user: is_user_type=%s, looks_like_user=%s", 
+                       key, is_user_type_result, looks_like_user_result)
+            
+            # For users, ALWAYS validate integrity even if they have an id
+            if is_user_type_result or looks_like_user_result:
+                logger.info("  👤 Processing as USER: %s (existing_id=%s)", name, entity_id)
+                
+                # If user already has an id, verify it exists in the database
+                if entity_id:
+                    user_exists = await self._users_service.verify_user_exists(db, entity_id)
+                    if user_exists:
+                        logger.info("✅ Usuario verificado en BD: %s (%s)", name, entity_id)
+                        continue
+                    else:
+                        logger.warning("⚠️  Usuario con id=%s NO existe en BD, buscando/creando...", entity_id)
+                
+                # Search or create user
                 user_doc = await self._users_service.find_or_create_user(
                     db,
                     display_name=name,
@@ -60,6 +91,12 @@ class EntitiesService:
                 logger.info("✨ Usuario creado al vuelo: %s (%s)", name, new_id)
                 continue
 
+            # For non-user entities, skip if they already have an id
+            if entity_id:
+                logger.info("  ⏭️  Skipping entity '%s': already has id=%s", key, entity_id)
+                continue
+
+            logger.info("  🏢 Processing as ENTITY (type=%s): %s", type_str, name)
             new_id = await self._create_new_entity_node(db, name, type_str)
             target["id"] = new_id
             logger.info("✨ Entidad creada al vuelo: %s (%s)", name, new_id)

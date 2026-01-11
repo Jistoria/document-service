@@ -111,6 +111,7 @@ class ValidationService:
         schema = get_schema_for_document(db, task_id)
 
         metadata_with_ids = await self._entities_service.ensure_entities_exist(db, raw_metadata, schema=schema)
+        
         allowed_keys = allowed_keys_from_schema(schema) if schema else None
 
         clean_metadata = sanitize_metadata(metadata_with_ids, allowed_keys=allowed_keys)
