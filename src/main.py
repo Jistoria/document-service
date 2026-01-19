@@ -11,6 +11,7 @@ from src.features.ocr_updates.consumer import consume_ocr_finalized
 from src.features.validation.router import router as validation_router
 from src.features.search.router import router as search_router
 from src.features.storage.router import router as storage_router
+from src.features.templates.router import router as template_router
 from src.core.storage import storage_instance
 
 
@@ -43,7 +44,7 @@ async def lifespan(app: FastAPI):
         # Esperamos a que termine de cerrarse
         await consumer_task
     except asyncio.CancelledError:
-        print("✅ Consumidor Kafka detenido correctamente")
+        print(" Consumidor Kafka detenido correctamente")
 
 
 # Pasamos el lifespan al constructor de la app
@@ -66,6 +67,8 @@ app.add_middleware(
 app.include_router(validation_router)
 app.include_router(search_router)
 app.include_router(storage_router)
+
+app.include_router(template_router)
 
 @app.get("/")
 def health_check():

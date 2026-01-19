@@ -47,7 +47,7 @@ class UsersService:
         # PRIORITY 1: Search by guid_ms or email in local DB (exact match)
         local_user = find_user_by_guid_or_email(db, guid_ms=guid_ms, email=email)
         if local_user:
-            logger.info("✅ Found user in local DB: %s (guid=%s, email=%s)", 
+            logger.info(" Found user in local DB: %s (guid=%s, email=%s)", 
                        local_user.get("_key"), local_user.get("guid_ms"), local_user.get("email"))
             return local_user
         
@@ -57,7 +57,7 @@ class UsersService:
             graph_user = await self._find_in_graph_exact(guid_ms=guid_ms, email=email)
             
             if graph_user:
-                logger.info("✅ Found exact match in Graph: %s", graph_user.get("displayName"))
+                logger.info(" Found exact match in Graph: %s", graph_user.get("displayName"))
                 graph_payload = {
                     "azure_id": graph_user.get("id"),
                     "displayName": graph_user.get("displayName"),
@@ -151,7 +151,7 @@ class UsersService:
                 logger.info("🔎 Searching Graph by guid_ms: %s", guid_ms)
                 user = await self._graph_client.get_user_by_id(guid_ms)
                 if user:
-                    logger.info("✅ Found user by guid_ms: %s", user.get("displayName"))
+                    logger.info(" Found user by guid_ms: %s", user.get("displayName"))
                     return user
             except Exception as e:
                 logger.warning("⚠️  Error searching by guid_ms: %s", e)
@@ -169,7 +169,7 @@ class UsersService:
                         user_mail = (user.get("mail") or "").lower()
                         user_upn = (user.get("userPrincipalName") or "").lower()
                         if email_lower in (user_mail, user_upn):
-                            logger.info("✅ Found user by email: %s", user.get("displayName"))
+                            logger.info(" Found user by email: %s", user.get("displayName"))
                             return user
             except Exception as e:
                 logger.warning("⚠️  Error searching by email: %s", e)

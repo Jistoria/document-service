@@ -57,7 +57,7 @@ class EntitiesService:
                 if entity_id:
                     user_exists = await self._users_service.verify_user_exists(db, entity_id)
                     if user_exists:
-                        logger.info("✅ Usuario verificado en BD: %s (%s)", name, entity_id)
+                        logger.info(" Usuario verificado en BD: %s (%s)", name, entity_id)
                         continue
                     else:
                         logger.warning("⚠️  Usuario con id=%s NO existe en BD, buscando/creando...", entity_id)

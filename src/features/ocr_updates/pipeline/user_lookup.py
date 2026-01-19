@@ -99,7 +99,7 @@ async def lookup_user_in_microsoft_graph(db, raw_text: str) -> Optional[Dict[str
 
         # 5. Decisión Final
         if best_candidate and best_score >= SIMILARITY_THRESHOLD:
-            logger.info(f"✅ Match Graph Aceptado: '{best_candidate.get('displayName')}' (Score: {best_score:.2f})")
+            logger.info(f" Match Graph Aceptado: '{best_candidate.get('displayName')}' (Score: {best_score:.2f})")
 
             graph_payload = {
                 "azure_id": best_candidate.get("id"),

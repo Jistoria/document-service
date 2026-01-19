@@ -61,6 +61,8 @@ class RequiredDocumentSync(BaseModel):
     id: str
     name: str
     codeDefault: str
+    isPublic: bool
+    processId: str
     metadataSchemaId: Optional[str] = None
 
 class ProcessSync(BaseModel):
