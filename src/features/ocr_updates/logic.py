@@ -66,7 +66,7 @@ async def process_ocr_result(payload: dict):
 
         # 6) Persistencia
         upsert_document(db, document_record)
-        logger.info(f"✅ Documento guardado. Estado: {status}")
+        logger.info(f" Documento guardado. Estado: {status}")
 
         # 7) Edges estructurales
         await create_structural_edges(

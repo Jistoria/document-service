@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
         # Esperamos a que termine de cerrarse
         await consumer_task
     except asyncio.CancelledError:
-        print("✅ Consumidor Kafka detenido correctamente")
+        print(" Consumidor Kafka detenido correctamente")
 
 
 # Pasamos el lifespan al constructor de la app

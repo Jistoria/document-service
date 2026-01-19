@@ -35,12 +35,12 @@ def init_arango_schema(db: StandardDatabase):
     for col in vertex_collections:
         if not db.has_collection(col):
             db.create_collection(col)
-            print(f"   ✅ Colección creada: {col}")
+            print(f"    Colección creada: {col}")
 
     for col in edge_collections:
         if not db.has_collection(col):
             db.create_collection(col, edge=True)
-            print(f"   ✅ Colección de ARISTAS creada: {col}")
+            print(f"    Colección de ARISTAS creada: {col}")
 
     print("✨ Esquema de base de datos verificado.")
 
@@ -133,7 +133,7 @@ def ensure_analyzer(db, name: str, analyzer_type: str, properties: dict, feature
     # 2) Si existe y coincide, usarlo
     if existing:
         if _analyzer_signature(existing) == _analyzer_signature(desired):
-            logger.info(f"✅ Analyzer '{name}' ya existe y coincide.")
+            logger.info(f" Analyzer '{name}' ya existe y coincide.")
             return name
 
         # 3) Si existe pero NO coincide, crea versionado
@@ -145,14 +145,14 @@ def ensure_analyzer(db, name: str, analyzer_type: str, properties: dict, feature
         # intenta crear el versionado (si ya existe, úsalo)
         try:
             db.create_analyzer(versioned, analyzer_type=analyzer_type, properties=properties, features=features)
-            logger.info(f"✅ Analyzer creado: {versioned}")
+            logger.info(f" Analyzer creado: {versioned}")
         except Exception as e:
             logger.warning(f"⚠️ No pude crear '{versioned}' (quizá ya existe): {e}")
         return versioned
 
     # 4) Si no existe, créalo normal
     db.create_analyzer(name, analyzer_type=analyzer_type, properties=properties, features=features)
-    logger.info(f"✅ Analyzer creado: {name}")
+    logger.info(f" Analyzer creado: {name}")
     return name
 
 
@@ -174,6 +174,6 @@ def configure_minio_cors(client: Minio, bucket_name: str):
 
     try:
         client.set_bucket_cors(bucket_name, cors_config)
-        print("✅ CORS configurado exitosamente.")
+        print(" CORS configurado exitosamente.")
     except S3Error as e:
         print(f"❌ Error configurando CORS: {e}")

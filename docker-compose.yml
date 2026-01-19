@@ -13,7 +13,7 @@ services:
       - storage
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     networks:
-      - thesis-net # ✅ Correcto
+      - thesis-net #  Correcto
 
   arangodb:
     image: arangodb:3.11

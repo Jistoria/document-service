@@ -14,7 +14,7 @@ async def sync_to_arango(db: StandardDatabase, data: MasterDataExport):
     # 3. SINCRONIZAR CATÁLOGO DE PROCESOS (NUEVO)
     await _sync_catalog(db, data.catalog)
 
-    print("✅ Sincronización completada exitosamente.")
+    print(" Sincronización completada exitosamente.")
 
 
 # --- Lógica de Estructura (Ya la tenías, encapsulada para orden) ---
@@ -84,7 +84,7 @@ async def _sync_process_recursive(db, process: ProcessSync, parent_id_str: str):
     for req_doc in process.requiredDocuments:
         # Guardar Nodo Documento Requerido
         await _upsert_node(db, 'required_documents', req_doc.id, req_doc.name, req_doc.codeDefault,
-                           extra={'schema_id': req_doc.metadataSchemaId})
+                           extra={'schema_id': req_doc.metadataSchemaId, 'is_public': req_doc.isPublic, 'process_id': req_doc.processId})
 
         # Conectar Doc -> Proceso
         await _upsert_catalog_edge(db, f"required_documents/{req_doc.id}", f"processes/{process.id}")
