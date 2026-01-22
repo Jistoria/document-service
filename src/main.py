@@ -1,7 +1,8 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer
 
 # Tus imports originales
 from src.features.sync_master_data.job import run_sync_job
@@ -18,6 +19,8 @@ from src.core.storage import storage_instance
 
 # Importar routers futuros aquí
 # from src.features.ingest.router import router as ingest_router
+
+security_scheme = HTTPBearer(auto_error=False)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,7 +52,8 @@ async def lifespan(app: FastAPI):
 
 
 # Pasamos el lifespan al constructor de la app
-app = FastAPI(title="Document Management Service", lifespan=lifespan)
+app = FastAPI(title="Document Management Service", lifespan=lifespan, dependencies=[Depends(security_scheme)]
+)
 
 origins = [
     "http://localhost:3000",    # Tu Frontend Vue
