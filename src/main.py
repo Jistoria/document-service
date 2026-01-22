@@ -12,6 +12,7 @@ from src.features.validation.router import router as validation_router
 from src.features.search.router import router as search_router
 from src.features.storage.router import router as storage_router
 from src.features.templates.router import router as template_router
+from src.features.context.router import router as context_router
 from src.core.storage import storage_instance
 
 
@@ -67,6 +68,7 @@ app.add_middleware(
 app.include_router(validation_router)
 app.include_router(search_router)
 app.include_router(storage_router)
+app.include_router(context_router)
 
 app.include_router(template_router)
 

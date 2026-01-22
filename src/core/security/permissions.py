@@ -9,51 +9,99 @@ logger = logging.getLogger(__name__)
 
 # Mantenemos la lógica pura aquí (o puedes meterla dentro de la clase)
 async def get_permitted_scopes_logic(permission: str, ctx: AuthContext) -> List[str]:
-    # Definimos el prefijo que usa Laravel/Auth Service
-    # TODO: Mover esto a settings.REDIS_KEY_PREFIX si es posible
-    REDIS_PREFIX = "laravel_database_"
+    ms_id = settings.DMS_MICROSERVICE_ID
+    
+    # Intentamos primero con Redis (Fuente original)
+    try:
+        redis = aioredis.from_url(settings.AUTH_REDIS_URL, decode_responses=True)
+        # TODO: Mover esto a settings.REDIS_KEY_PREFIX si es posible
+        REDIS_PREFIX = "laravel_database_"
+        
+        # 2. Check Teams
+        allowed_teams = []
+        user_teams = ctx.team_ids or []
 
-    redis = aioredis.from_url(settings.AUTH_REDIS_URL, decode_responses=True)
-    ms_id = "a0c07d14-98ad-41b9-a3e6-4fc7c1a4d57c"
+        if not user_teams:
+            return []
 
-    # 1. Check Global
-    # Nota: Aquí ya lo tenías, pero asegúrate de usar la variable para consistencia
-    global_key = f"{REDIS_PREFIX}perm:{ctx.tenant_id}:{ms_id}:{ctx.user_id}:global"
+        pipe = redis.pipeline()
+        checked_keys = []
+        
+        for team_id in user_teams:
+            # AJUSTE CRÍTICO: PHP almacena el contexto 'global' (team_id=global o null)
+            # en la clave SIN sufijo (perm:{t}:{ms}:{u}).
+            # Los teams normales van en con sufijo (perm:{t}:{ms}:{u}:{team}).
+            # Si el array team_ids incluye "global", debemos chequear la clave raíz.
+            
+            if team_id == "global":
+                 key = f"{REDIS_PREFIX}perm:{ctx.tenant_id}:{ms_id}:{ctx.user_id}"
+            else:
+                 key = f"{REDIS_PREFIX}perm:{ctx.tenant_id}:{ms_id}:{ctx.user_id}:{team_id}"
+            
+            pipe.sismember(key, permission)
+            checked_keys.append(key)
 
-    logger.info(f"Checking global key: {global_key}")
+        results = await pipe.execute()
+        
+        for team_id, has_perm in zip(user_teams, results):
+            if has_perm:
+                if team_id == "global":
+                    allowed_teams.append("*")
+                else:
+                    allowed_teams.append(team_id)
 
-    if await redis.sismember(global_key, permission):
-        return ["*"]
+        return allowed_teams
 
-    # 2. Check Teams
+    except Exception as e:
+        logger.warning(f"⚠️ Redis permission check failed, switching to memory/fallback: {e}")
+        return _check_permissions_in_memory(ctx, permission, ms_id)
+
+def _check_permissions_in_memory(ctx: AuthContext, permission: str, ms_id: str) -> List[str]:
+    """
+    Fallback: Verifica permisos usando el JSON decodificado en AuthContext
+    (que viene de Redis Session o de ArangoDB Fallback).
+    """
     allowed_teams = []
-    user_teams = ctx.team_ids or []  # O ctx.team_ids, como lo tengas definido
-
-    if not user_teams:
+    
+    logger.info(f"Checking permissions in memory for permission '{permission}' and microservice '{ms_id}', user teams: {ctx.team_ids}")
+    # Estructura: ctx.microservices_data['by_id'][ms_id]
+    ms_data = ctx.microservices_data.get("by_id", {}).get(ms_id, {})
+    if not ms_data:
         return []
 
-    pipe = redis.pipeline()
+    # Permisos Globales (equivale a team_id="global")
+    global_perms = set(ms_data.get("permissions", []))
+    
+    # Permisos por Equipo
+    teams_data = ms_data.get("teams", {})
 
+    user_teams = ctx.team_ids or []
+    
     for team_id in user_teams:
-        # CORRECCIÓN: Agregamos el prefijo aquí también
-        key = f"{REDIS_PREFIX}perm:{ctx.tenant_id}:{ms_id}:{ctx.user_id}:{team_id}"
-        pipe.sismember(key, permission)
-
-    results = await pipe.execute()
-
-    # Debug para verificar
-    logger.info(f"Checking teams: {user_teams}")
-    logger.info(f"Results raw: {results}")
-
-    for team_id, has_perm in zip(user_teams, results):
+        has_perm = False
+        
+        if team_id == "global":
+            # Si el usuario tiene asignado explícitamente "global", 
+            # verifica contra la lista de permisos globales
+            if permission in global_perms:
+                has_perm = True
+        else:
+            # Verifica contra el diccionario de equipos
+            t_data = teams_data.get(team_id, {})
+            t_perms = t_data.get("permissions", [])
+            if permission in t_perms:
+                 has_perm = True
+        
         if has_perm:
-            # Si el equipo es 'global', y tiene permiso, significa que tiene permiso en el scope global,
-            # pero no necesariamente es admin total (*). Lo agregamos a la lista.
-            allowed_teams.append(team_id)
-
-    logger.info(f"Allowed teams: {allowed_teams}")
-
+            if team_id == "global":
+                allowed_teams.append("*")
+            else:
+                allowed_teams.append(team_id)
+                
+    logger.info(f"Fallback permissions result: {allowed_teams}")
     return allowed_teams
+
+
 
 
 # --- ESTA ES LA CLASE MÁGICA ---

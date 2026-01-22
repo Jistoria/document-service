@@ -3,6 +3,7 @@ from typing import Optional, List, Tuple
 from .models import DocumentDetailResponse, DocumentListAPIResponse, EntityListAPIResponse
 from .service import search_service
 from .dependencies import resolve_status_and_teams
+from src.core.security.auth import AuthContext, get_auth_context
 # Importa tu servicio de storage aquí
 from src.core.storage import storage_instance
 router = APIRouter(prefix="/documents", tags=["Search & Retrieval"])
@@ -15,7 +16,8 @@ async def get_documents(
         entity_id: Optional[str] = Query(None, description="Filtro Jerárquico: Busca en esta entidad Y en sus hijas (Ej: Filtrar por Facultad trae documentos de sus Carreras)."),
         process_id: Optional[str] = Query(None, description="Filtro Jerárquico: Busca por Proceso, Categoría o Documento Requerido."),
         status: Optional[str] = Query(None, description="Filtrar por estado (ej: attention_required, validated, confirmed)"),
-        search_context: Tuple[Optional[str], List[str]] = Depends(resolve_status_and_teams)
+        search_context: Tuple[Optional[str], List[str]] = Depends(resolve_status_and_teams),
+        ctx: AuthContext = Depends(get_auth_context)
 ):
     """
     Lista documentos paginados con formato estándar.
@@ -29,7 +31,8 @@ async def get_documents(
         entity_id=entity_id,
         process_id=process_id,
         status=resolved_status,  # Usamos el status inteligente
-        allowed_teams=allowed_teams  # Usamos los equipos filtrados
+        allowed_teams=allowed_teams,  # Usamos los equipos filtrados
+        current_user_id=ctx.user_id
     )
 
 

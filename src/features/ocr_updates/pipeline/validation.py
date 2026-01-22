@@ -75,7 +75,7 @@ async def validate_metadata_strict(db, schema_id: str, ocr_data: List[Dict[str, 
             else:
                 # --- AQUÍ FALTABA EL LOG ---
                 logger.warning(
-                    f"❌ NO SE ENCONTRÓ MATCH para [{label}]. Valor OCR: '{raw_value}'. Tipo buscado: {entity_type_key}")
+                    f"NO SE ENCONTRÓ MATCH para [{label}]. Valor OCR: '{raw_value}'. Tipo buscado: {entity_type_key}")
 
                 validated_output[key] = {
                     "value": raw_value,

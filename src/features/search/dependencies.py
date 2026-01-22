@@ -32,7 +32,7 @@ async def resolve_status_and_teams(
     # 2. Lógica de "Smart Default" (Si no envían status)
     if not status:
         # Por defecto, mostramos lo validado para mantener la UI limpia
-        status = "attention_required"
+        status = "validated"
 
     # 3. Lógica de Protección de Estados Sensibles
     if status in VERIFICATION_STATUSES:

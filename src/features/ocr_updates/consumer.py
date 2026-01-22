@@ -30,6 +30,6 @@ async def consume_ocr_finalized():
             await process_ocr_result(msg.value)
 
     except Exception as e:
-        logger.error(f"❌ Error en consumidor: {e}")
+        logger.error(f"Error en consumidor: {e}")
     finally:
         await consumer.stop()

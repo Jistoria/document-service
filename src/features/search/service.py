@@ -1,4 +1,5 @@
 import math
+from src.features.search.dependencies import VERIFICATION_STATUSES
 from src.core.database import db_instance
 import logging
 from arango.exceptions import ArangoError
@@ -74,6 +75,7 @@ class SearchService:
             process_id: str = None,
             status: str = None,
             allowed_teams: List[str] = None,
+            current_user_id: str = None
     ):
         try:
             db = self.get_db()
@@ -133,6 +135,11 @@ class SearchService:
             if status:
                 filters.append("doc.status == @status")
                 bind_vars["status"] = status
+                # Si el estado es 'required_attention', filtramos para que el usuario solo vea SU trabajo pendiente
+                if status in VERIFICATION_STATUSES and current_user_id:
+                     logger.info(f"Filtrando documentos para el usuario: {current_user_id}")
+                     filters.append("doc.owner.id == @current_user_id")
+                     bind_vars["current_user_id"] = current_user_id
 
             # 1. Filtro jerárquico de ENTIDAD
             if entity_id:
@@ -247,7 +254,7 @@ class SearchService:
             }
 
         except ArangoError as e:
-            logger.error("❌ Error AQL / ArangoDB en search_documents", exc_info=True)
+            logger.error("Error AQL / ArangoDB en search_documents", exc_info=True)
             return {
                 "success": False,
                 "data": None,
@@ -255,7 +262,7 @@ class SearchService:
             }
 
         except Exception as e:
-            logger.error("❌ Error inesperado en search_documents", exc_info=True)
+            logger.error("Error inesperado en search_documents", exc_info=True)
             return {
                 "success": False,
                 "data": None,
@@ -291,50 +298,8 @@ class SearchService:
         Traduce los códigos de permisos (ej: 'CARR:213.11', 'FAC:10')
         a los _key (UUIDs) reales de las entidades en ArangoDB.
         """
-        if not allowed_teams or "*" in allowed_teams:
-            return []
+        from src.features.context.utils import resolve_team_codes
+        return resolve_team_codes(db, allowed_teams, return_full_object=False)
 
-        # 1. Estructura de mapeo (Prefijo Redis -> type en Arango)
-        # Ajusta los valores de la derecha según lo que tengas en tu campo 'e.type'
-        type_map = {
-            "CARR": "carrera",
-            "FAC": "facultad",
-            "DEP": "departamento"
-        }
-
-        # 2. Preparar filtros para AQL
-        # Convertimos ['CARR:213.11'] en [{'type': 'carrera', 'code': '213.11'}]
-        criteria = []
-        for team in allowed_teams:
-            if ":" in team:
-                prefix, code = team.split(":", 1)
-                if prefix in type_map:
-                    criteria.append({
-                        "type": type_map[prefix],
-                        "code": code
-                    })
-
-        if not criteria:
-            return []
-
-        logger.info(f"Criteria: {criteria}")
-
-        # 3. Consulta de Traducción (Muy rápida porque usa índices)
-        # Buscamos por code OR code_numeric para ser robustos
-        aql = """
-        FOR criteria IN @criteria
-            FOR e IN entities
-                FILTER e.type == criteria.type 
-                   AND (e.code == criteria.code OR e.code_numeric == criteria.code)
-                RETURN e._key
-        """
-
-        cursor = db.aql.execute(aql, bind_vars={"criteria": criteria})
-
-
-        resolved_ids = list(cursor)
-
-        logger.info(f"🔑 Permisos traducidos: {allowed_teams} -> {resolved_ids}")
-        return resolved_ids
 
 search_service = SearchService()

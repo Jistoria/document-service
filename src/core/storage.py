@@ -22,7 +22,7 @@ class StorageService:
                 self.client.make_bucket(self.bucket_name)
                 print(f"🪣 Bucket '{self.bucket_name}' creado exitosamente.")
         except S3Error as e:
-            print(f"❌ Error verificando bucket: {e}")
+            print(f"Error verificando bucket: {e}")
 
     def upload_file(self, file_data: bytes, destination_path: str, content_type: str):
         """
@@ -42,7 +42,7 @@ class StorageService:
             # Retornamos formato: bucket/path
             return f"{self.bucket_name}/{destination_path}"
         except S3Error as e:
-            print(f"❌ Error subiendo archivo a MinIO: {e}")
+            print(f"Error subiendo archivo a MinIO: {e}")
             raise e
 
     def get_presigned_url(self, object_path: str, expires_in_minutes: int = 60) -> str:

@@ -79,4 +79,4 @@ async def process_ocr_result(payload: dict):
         )
 
     except Exception as e:
-        logger.error(f"❌ Error CRÍTICO en lógica OCR: {e}", exc_info=True)
+        logger.error(f"Error CRÍTICO en lógica OCR: {e}", exc_info=True)

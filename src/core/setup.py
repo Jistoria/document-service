@@ -176,4 +176,4 @@ def configure_minio_cors(client: Minio, bucket_name: str):
         client.set_bucket_cors(bucket_name, cors_config)
         print(" CORS configurado exitosamente.")
     except S3Error as e:
-        print(f"❌ Error configurando CORS: {e}")
+        print(f"Error configurando CORS: {e}")

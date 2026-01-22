@@ -123,5 +123,5 @@ async def lookup_user_in_microsoft_graph(db, raw_text: str) -> Optional[Dict[str
             return None
 
     except Exception as e:
-        logger.error(f"❌ Error consultando Microsoft Graph: {e}", exc_info=True)
+        logger.error(f"Error consultando Microsoft Graph: {e}", exc_info=True)
         return None

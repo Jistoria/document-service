@@ -31,7 +31,7 @@ class UsersService:
             logger.info("🔍 User verification: id=%s exists=%s", user_id, exists)
             return exists
         except Exception as e:
-            logger.error("❌ Error verifying user existence: %s", e)
+            logger.error("Error verifying user existence: %s", e)
             return False
 
     async def find_or_create_user(
@@ -94,7 +94,7 @@ class UsersService:
                 }
                 return upsert_user_from_graph(db, graph_user=graph_payload, source="validation_graph")
         
-        logger.info("❌ User not found in any source")
+        logger.info("User not found in any source")
         return None
 
     async def create_new_user_node(self, db, display_name: str, email: Optional[str] = None) -> str:
