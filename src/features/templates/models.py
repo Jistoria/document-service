@@ -12,6 +12,7 @@ class RequiredDocumentResponse(BaseModel):
     has_template: bool = False
     template_display_name: Optional[str] = None
     template_updated_at: Optional[str] = None
+    template_path: Optional[str] = None
 
     # Metadata extra
     is_public: bool = False

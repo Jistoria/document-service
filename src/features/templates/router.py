@@ -75,7 +75,8 @@ async def list_required_documents_templates(
                 // Info del Template
                 has_template: doc.has_template || false,
                 template_display_name: doc.template_display_name,
-                template_updated_at: DATE_ISO8601(doc.template_updated_at)
+                template_updated_at: DATE_ISO8601(doc.template_updated_at),
+                template_path: doc.template_path || null
             }}
         """
 
