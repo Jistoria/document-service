@@ -1,47 +1,53 @@
 services:
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: document-service-api:prod
     container_name: document-service-api
-    ports:
-      - "8005:8000"
-    volumes:
-      - ./src:/app/src
     env_file:
       - .env
     depends_on:
-      - arangodb
-      - storage
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+      arangodb:
+        condition: service_started
+      storage:
+        condition: service_started
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000
     networks:
-      - thesis-net #  Correcto
+      - thesis-net
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8005:8000"
 
   arangodb:
     image: arangodb:3.11
     container_name: document-arango
-    environment:
-      - ARANGO_ROOT_PASSWORD=${ARANGO_ROOT_PASSWORD}
-    ports:
-      - "8529:8529"
+    env_file:
+      - docker/arango.env
     volumes:
       - arango_data:/var/lib/arangodb3
     networks:
-      - thesis-net # 👈 AGREGAR ESTO (Vital)
+      - thesis-net
+    restart: unless-stopped
+    # Opcional: solo si necesitas acceso local desde el VPS (debug):
+    ports:
+      - "127.0.0.1:8529:8529"
 
   storage:
     image: minio/minio:latest
     container_name: document-storage
-    ports:
-      - "9005:9000"
-      - "9007:9001"
-    environment:
-      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
-      - MINIO_API_CORS_ALLOW_ORIGIN="http://localhost:3000,http://127.0.0.1:3000,http://localhost:1420"
+    env_file:
+      - docker/minio.env
     volumes:
       - storage_data:/data
     command: server /data --console-address ":9001"
     networks:
-      - thesis-net # 👈 AGREGAR ESTO (Vital)
+      - thesis-net
+    restart: unless-stopped
+    # Solo local. API hablará con minio por red interna.
+    ports:
+      - "127.0.0.1:9005:9000"
+      - "127.0.0.1:9007:9001"
 
 volumes:
   arango_data:

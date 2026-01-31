@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     AUTH_REDIS_URL: str = "redis://localhost:6379"
 
     # DMS
-    DMS_MICROSERVICE_ID: str = "a0c07d14-98ad-41b9-a3e6-4fc7c1a4d57c"
+    DMS_MICROSERVICE_ID: str = "a0f43301-466e-422c-85cf-061947508721"
 
     AUTH_JWKS_URL: str = "https://auth.example.com/.well-known/jwks.json"
 
