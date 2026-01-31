@@ -52,7 +52,12 @@ async def lifespan(app: FastAPI):
 
 
 # Pasamos el lifespan al constructor de la app
-app = FastAPI(title="Document Management Service", lifespan=lifespan, dependencies=[Depends(security_scheme)]
+app = FastAPI(
+    title="Document Management Service", 
+    lifespan=lifespan, 
+    dependencies=[Depends(security_scheme)],
+    version="1.0.0",
+    root_path="/document"
 )
 
 origins = [
