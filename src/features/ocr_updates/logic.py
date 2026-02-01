@@ -21,6 +21,8 @@ async def process_ocr_result(payload: dict):
 
         parsed = parse_payload(payload)
 
+        logger.debug(f"Parsed OCR payload: {parsed}")
+
         context_entity_id = parsed.context_values.get("id")
         context_entity_type = parsed.context_values.get("type")
 
