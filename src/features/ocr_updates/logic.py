@@ -27,7 +27,7 @@ async def process_ocr_result(payload: dict):
         context_entity_type = parsed.context_values.get("type")
 
         logger.info(
-            f"🔄 Procesando documento {parsed.task_id}. "
+            f"Procesando documento {parsed.task_id}. "
             f"Contexto: {context_entity_type} ({context_entity_id})"
         )
 

@@ -14,6 +14,7 @@ from src.features.search.router import router as search_router
 from src.features.storage.router import router as storage_router
 from src.features.templates.router import router as template_router
 from src.features.context.router import router as context_router
+from src.features.catalog.router import router as catalog_router
 from src.core.storage import storage_instance
 
 

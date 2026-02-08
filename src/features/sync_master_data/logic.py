@@ -3,7 +3,7 @@ from .models import MasterDataExport, ProcessSync
 
 
 async def sync_to_arango(db: StandardDatabase, data: MasterDataExport):
-    print(f"🔄 Sincronizando Grafos Completo...")
+    print(f" Sincronizando Grafos Completo...")
 
     # 1. SINCRONIZAR ESTRUCTURA (Sedes -> Carreras)
     await _sync_structure(db, data.structure)

@@ -142,7 +142,7 @@ async def _get_jwks_data(jwks_url: str) -> dict:
             return cache_entry["keys"]
 
         try:
-            logger.info(f"🔄 Refrescando JWKS desde {jwks_url}")
+            logger.info(f" Refrescando JWKS desde {jwks_url}")
             keys_data = await _fetch_jwks(jwks_url)
             _JWKS_CACHE[jwks_url] = {
                 "keys": keys_data,
