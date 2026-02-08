@@ -1,38 +1,90 @@
-from fastapi import APIRouter, HTTPException, Query, Depends
-from typing import Optional, List, Tuple
+from dataclasses import dataclass
+from datetime import date
+from typing import List, Optional, Tuple
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from src.core.security.auth import AuthContext, get_auth_context
+
+from .dependencies import resolve_status_and_teams
 from .models import DocumentDetailResponse, DocumentListAPIResponse, EntityListAPIResponse
 from .service import search_service
-from .dependencies import resolve_status_and_teams
-from src.core.security.auth import AuthContext, get_auth_context
-# Importa tu servicio de storage aquí
-from src.core.storage import storage_instance
+
 router = APIRouter(prefix="/documents", tags=["Search & Retrieval"])
 
 
-@router.get("/", response_model=DocumentListAPIResponse, )
+@dataclass
+class DocumentSearchQueryParams:
+    """Parámetros de búsqueda avanzados para documentos."""
+
+    entity_id: Optional[str] = Query(
+        None,
+        description="Filtro Jerárquico: Busca en esta entidad y en sus hijas.",
+    )
+    process_id: Optional[str] = Query(
+        None,
+        description="Filtro Jerárquico: Busca por Proceso, Categoría o Documento Requerido.",
+    )
+    status: Optional[str] = Query(
+        None,
+        description="Filtrar por estado (ej: attention_required, validated, confirmed).",
+    )
+    search: Optional[str] = Query(
+        None,
+        description="Búsqueda parcial por nombre mostrado u nombre original del archivo.",
+    )
+    required_document_id: Optional[str] = Query(
+        None,
+        description="Filtrar documentos cuya arista complies_with apunta al ID indicado.",
+    )
+    referenced_entity_id: Optional[str] = Query(
+        None,
+        description="Filtrar documentos cuya arista references apunta a la entidad indicada.",
+    )
+    schema_id: Optional[str] = Query(
+        None,
+        description="Filtrar documentos cuya arista usa_esquema apunta al esquema indicado.",
+    )
+    date_from: Optional[date] = Query(
+        None,
+        description="Fecha inicial (inclusive) para filtrar por doc.created_at.",
+    )
+    date_to: Optional[date] = Query(
+        None,
+        description="Fecha final (inclusive) para filtrar por doc.created_at.",
+    )
+    owner_id: Optional[str] = Query(
+        None,
+        description="Filtrar por ID de propietario/cargador del documento (doc.owner.id).",
+    )
+
+
+@router.get("/", response_model=DocumentListAPIResponse)
 async def get_documents(
-        page: int = 1,
-        limit: int = 10,
-        entity_id: Optional[str] = Query(None, description="Filtro Jerárquico: Busca en esta entidad Y en sus hijas (Ej: Filtrar por Facultad trae documentos de sus Carreras)."),
-        process_id: Optional[str] = Query(None, description="Filtro Jerárquico: Busca por Proceso, Categoría o Documento Requerido."),
-        status: Optional[str] = Query(None, description="Filtrar por estado (ej: attention_required, validated, confirmed)"),
-        search_context: Tuple[Optional[str], List[str]] = Depends(resolve_status_and_teams),
-        ctx: AuthContext = Depends(get_auth_context)
+    page: int = 1,
+    limit: int = 10,
+    params: DocumentSearchQueryParams = Depends(),
+    search_context: Tuple[Optional[str], List[str]] = Depends(resolve_status_and_teams),
+    ctx: AuthContext = Depends(get_auth_context),
 ):
-    """
-    Lista documentos paginados con formato estándar.
-    Permite filtrar por estado y ubicación (Entidad).
-    """
+    """Lista documentos paginados con formato estándar y filtros avanzados."""
     resolved_status, allowed_teams = search_context
 
     return search_service.search_documents(
         page=page,
         page_size=limit,
-        entity_id=entity_id,
-        process_id=process_id,
-        status=resolved_status,  # Usamos el status inteligente
-        allowed_teams=allowed_teams,  # Usamos los equipos filtrados
-        current_user_id=ctx.user_id
+        entity_id=params.entity_id,
+        process_id=params.process_id,
+        status=resolved_status,
+        allowed_teams=allowed_teams,
+        current_user_id=ctx.user_id,
+        search=params.search,
+        required_document_id=params.required_document_id,
+        referenced_entity_id=params.referenced_entity_id,
+        schema_id=params.schema_id,
+        date_from=params.date_from,
+        date_to=params.date_to,
+        owner_id=params.owner_id,
     )
 
 
@@ -53,7 +105,6 @@ async def get_document_detail(doc_id: str):
     """
     result = search_service.get_document_by_id(doc_id)
 
-    # Manejamos el 404 explícitamente si el servicio indica fallo
     if not result["success"]:
         raise HTTPException(status_code=404, detail=result["message"])
 
