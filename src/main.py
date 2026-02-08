@@ -79,6 +79,7 @@ app.include_router(validation_router)
 app.include_router(search_router)
 app.include_router(storage_router)
 app.include_router(context_router)
+app.include_router(catalog_router)
 
 app.include_router(template_router)
 
