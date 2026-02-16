@@ -19,8 +19,36 @@ class EntitiesService:
         
         for key, item in (metadata or {}).items():
             logger.info("🔍 Processing key='%s', item type=%s", key, type(item).__name__)
-            
+
+            expected_type = entity_type_map.get(key)
+
             if not isinstance(item, dict):
+                if is_user_type(expected_type) and isinstance(item, str) and item.strip():
+                    logger.info("  👤 Resolviendo usuario escalar para '%s': %s", key, item)
+                    user_doc = await self._users_service.find_or_create_user(
+                        db,
+                        display_name=item.strip(),
+                        email=None,
+                        guid_ms=None,
+                    )
+
+                    if user_doc:
+                        metadata[key] = self._users_service.build_metadata_from_user(user_doc)
+                        logger.info("  ✅ Usuario resuelto para '%s'", key)
+                        continue
+
+                    new_id = await self._users_service.create_new_user_node(
+                        db,
+                        display_name=item.strip(),
+                    )
+                    metadata[key] = {
+                        "id": new_id,
+                        "type": "user",
+                        "display_name": item.strip(),
+                    }
+                    logger.info("  ✅ Usuario creado para '%s': %s", key, new_id)
+                    continue
+
                 logger.info("  ⏭️  Skipping '%s': not a dict", key)
                 continue
 
@@ -35,7 +63,7 @@ class EntitiesService:
 
             entity_id = val_obj.get("id")
             name = val_obj.get("name") or val_obj.get("display_name")
-            type_str = val_obj.get("type") or entity_type_map.get(key)
+            type_str = val_obj.get("type") or expected_type
             
             logger.info("  🏷️  key='%s': id=%s, name=%s, type=%s", key, entity_id, name, type_str)
 
