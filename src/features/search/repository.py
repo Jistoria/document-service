@@ -301,7 +301,30 @@ class SearchRepository:
         return search_clause, "SORT BM25(doc) DESC, doc.created_at DESC", "documents_search_view", bind_vars
 
     @staticmethod
+    def _metadata_value_expr(key_bind: str) -> str:
+        """Expresión tolerante para metadatos normalizados y legacy."""
+        return (
+            "COALESCE("
+            f"doc.validated_metadata[@{key_bind}].value, "
+            f"doc.validated_metadata[@{key_bind}].display_name, "
+            f"doc.validated_metadata[@{key_bind}].name, "
+            f"doc.validated_metadata[@{key_bind}], "
+            "'')"
+        )
+
+    @staticmethod
+    def _metadata_string_distance(value: str) -> int:
+        """Fuzziness moderado para no impactar drásticamente precisión."""
+        normalized_length = len((value or "").strip())
+        if normalized_length <= 6:
+            return 1
+        if normalized_length <= 16:
+            return 2
+        return 3
+
+    @classmethod
     def _add_metadata_filters(
+        cls,
         filters: Dict[str, Any],
         aql_filters: List[str],
         bind_vars: Dict[str, Any],
@@ -313,6 +336,7 @@ class SearchRepository:
         for index, (clave, valor) in enumerate(metadata_filters.items()):
             key_bind = f"meta_key_{index}"
             bind_vars[key_bind] = clave
+            metadata_value_expr = cls._metadata_value_expr(key_bind)
 
             if isinstance(valor, dict):
                 gte = valor.get("gte")
@@ -321,18 +345,30 @@ class SearchRepository:
                 if gte is not None:
                     gte_bind = f"meta_gte_{index}"
                     bind_vars[gte_bind] = gte
-                    aql_filters.append(f"doc.validated_metadata[@{key_bind}].value >= @{gte_bind}")
+                    aql_filters.append(f"{metadata_value_expr} >= @{gte_bind}")
 
                 if lte is not None:
                     lte_bind = f"meta_lte_{index}"
                     bind_vars[lte_bind] = lte
-                    aql_filters.append(f"doc.validated_metadata[@{key_bind}].value <= @{lte_bind}")
+                    aql_filters.append(f"{metadata_value_expr} <= @{lte_bind}")
 
                 continue
 
             value_bind = f"meta_value_{index}"
             bind_vars[value_bind] = valor
-            aql_filters.append(f"doc.validated_metadata[@{key_bind}].value == @{value_bind}")
+
+            if isinstance(valor, str):
+                distance_bind = f"meta_distance_{index}"
+                bind_vars[distance_bind] = cls._metadata_string_distance(valor)
+                aql_filters.append(
+                    "(" 
+                    f"CONTAINS(LOWER(TO_STRING({metadata_value_expr})), LOWER(@{value_bind})) "
+                    f"OR LEVENSHTEIN_DISTANCE(LOWER(TO_STRING({metadata_value_expr})), LOWER(@{value_bind})) <= @{distance_bind}"
+                    ")"
+                )
+                continue
+
+            aql_filters.append(f"{metadata_value_expr} == @{value_bind}")
 
     @staticmethod
     def _add_filter_if_present(
