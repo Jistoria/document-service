@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from arango.exceptions import ArangoError
 
@@ -50,6 +50,8 @@ class SearchService:
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
         owner_id: Optional[str] = None,
+        metadata_filters: Optional[Dict[str, Any]] = None,
+        fuzziness: Optional[int] = None,
     ):
         """Busca documentos con filtros dinámicos y paginación."""
         try:
@@ -75,6 +77,8 @@ class SearchService:
                 "date_from": date_from,
                 "date_to": date_to,
                 "owner_id": owner_id,
+                "metadata_filters": metadata_filters or {},
+                "fuzziness": fuzziness,
             }
 
             if status in VERIFICATION_STATUSES and current_user_id:

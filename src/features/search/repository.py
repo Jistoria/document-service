@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.database import db_instance
 
@@ -112,17 +112,6 @@ class SearchRepository:
             """,
         )
 
-        if filters.get("search"):
-            aql_filters.append(
-                """
-                (
-                    CONTAINS(LOWER(doc.naming.display_name), LOWER(@search))
-                    OR CONTAINS(LOWER(doc.original_filename), LOWER(@search))
-                )
-                """
-            )
-            bind_vars["search"] = filters["search"]
-
         self._add_filter_if_present(
             filters,
             "required_document_id",
@@ -169,14 +158,17 @@ class SearchRepository:
         )
 
         self._add_date_filters(filters, aql_filters, bind_vars)
+        self._add_metadata_filters(filters, aql_filters, bind_vars)
 
         filter_clause = f"FILTER {' AND '.join(aql_filters)}" if aql_filters else ""
+        search_clause, search_sort_clause, source, bind_vars = self._build_search_clause(filters, bind_vars)
 
         aql = f"""
         LET docs = (
-            FOR doc IN documents
+            FOR doc IN {source}
+                {search_clause}
                 {filter_clause}
-                SORT doc.created_at DESC
+                {search_sort_clause}
                 LIMIT @offset, @limit
 
                 LET entity = (FOR v IN 1..1 OUTBOUND doc file_located_in RETURN {{ id: v._key, name: v.name, type: v.type }})[0]
@@ -191,7 +183,8 @@ class SearchRepository:
         )
 
         LET total_count = (
-            FOR doc IN documents
+            FOR doc IN {source}
+                {search_clause}
                 {filter_clause}
                 COLLECT WITH COUNT INTO total
                 RETURN total
@@ -216,6 +209,71 @@ class SearchRepository:
         """
         cursor = self.db.aql.execute(aql)
         return list(cursor)
+
+
+    def _build_search_clause(
+        self,
+        filters: Dict[str, Any],
+        bind_vars: Dict[str, Any],
+    ) -> Tuple[str, str, str, Dict[str, Any]]:
+        search = filters.get("search")
+        if not search:
+            return "", "SORT doc.created_at DESC", "documents", bind_vars
+
+        bind_vars["search"] = search
+        fuzziness = filters.get("fuzziness")
+        try:
+            bind_vars["fuzziness"] = max(0, int(fuzziness)) if fuzziness is not None else 2
+        except (TypeError, ValueError):
+            bind_vars["fuzziness"] = 2
+
+        search_clause = """
+        SEARCH ANALYZER(
+            PHRASE(doc.naming.display_name, @search)
+            OR doc.naming.display_name IN TOKENS(@search, "text_es")
+            OR doc.original_filename IN TOKENS(@search, "text_es")
+            OR doc.validated_metadata[*].value IN TOKENS(@search, "text_es")
+            OR LEVENSHTEIN_MATCH(doc.naming.display_name, TOKENS(@search, "text_es")[0], @fuzziness, false)
+            OR LEVENSHTEIN_MATCH(doc.original_filename, TOKENS(@search, "text_es")[0], @fuzziness, false),
+            "text_es"
+        )
+        """
+
+        return search_clause, "SORT BM25(doc) DESC, doc.created_at DESC", "documents_search_view", bind_vars
+
+    @staticmethod
+    def _add_metadata_filters(
+        filters: Dict[str, Any],
+        aql_filters: List[str],
+        bind_vars: Dict[str, Any],
+    ) -> None:
+        metadata_filters = filters.get("metadata_filters")
+        if not isinstance(metadata_filters, dict) or not metadata_filters:
+            return
+
+        for index, (clave, valor) in enumerate(metadata_filters.items()):
+            key_bind = f"meta_key_{index}"
+            bind_vars[key_bind] = clave
+
+            if isinstance(valor, dict):
+                gte = valor.get("gte")
+                lte = valor.get("lte")
+
+                if gte is not None:
+                    gte_bind = f"meta_gte_{index}"
+                    bind_vars[gte_bind] = gte
+                    aql_filters.append(f"doc.validated_metadata[@{key_bind}].value >= @{gte_bind}")
+
+                if lte is not None:
+                    lte_bind = f"meta_lte_{index}"
+                    bind_vars[lte_bind] = lte
+                    aql_filters.append(f"doc.validated_metadata[@{key_bind}].value <= @{lte_bind}")
+
+                continue
+
+            value_bind = f"meta_value_{index}"
+            bind_vars[value_bind] = valor
+            aql_filters.append(f"doc.validated_metadata[@{key_bind}].value == @{value_bind}")
 
     @staticmethod
     def _add_filter_if_present(

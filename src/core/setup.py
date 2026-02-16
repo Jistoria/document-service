@@ -46,9 +46,6 @@ def init_arango_schema(db: StandardDatabase):
 
 
 def init_arangosearch_views(db):
-    view_name = "entities_search_view"
-
-    # text analyzer (con features que ArangoSearch suele usar)
     name_analyzer = ensure_analyzer(
         db,
         name="text_es",
@@ -75,14 +72,27 @@ def init_arangosearch_views(db):
         features=[],
     )
 
-    # recrear vista (si quieres)
+    ensure_analyzer(
+        db,
+        name="ngram_es",
+        analyzer_type="ngram",
+        properties={
+            "min": 3,
+            "max": 3,
+            "preserveOriginal": True,
+            "streamType": "utf8",
+        },
+        features=["frequency", "norm", "position"],
+    )
+
+    entity_view_name = "entities_search_view"
     try:
-        db.delete_view(view_name)
+        db.delete_view(entity_view_name)
     except Exception:
         pass
 
     db.create_arangosearch_view(
-        name=view_name,
+        name=entity_view_name,
         properties={
             "links": {
                 "entities": {
@@ -100,6 +110,36 @@ def init_arangosearch_views(db):
                         "email": {"analyzers": ["identity"]},
                     }
                 },
+            }
+        },
+    )
+
+    documents_view_name = "documents_search_view"
+    try:
+        db.delete_view(documents_view_name)
+    except Exception:
+        pass
+
+    db.create_arangosearch_view(
+        name=documents_view_name,
+        properties={
+            "links": {
+                "documents": {
+                    "storeValues": "id",
+                    "fields": {
+                        "naming": {
+                            "fields": {
+                                "display_name": {"analyzers": [name_analyzer]}
+                            }
+                        },
+                        "original_filename": {"analyzers": [name_analyzer]},
+                        "validated_metadata": {
+                            "includeAllFields": True,
+                            "searchField": True,
+                            "storeValues": "id",
+                        },
+                    },
+                }
             }
         },
     )

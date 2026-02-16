@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import json
 from datetime import date
 from typing import List, Optional, Tuple
 
@@ -57,6 +58,40 @@ class DocumentSearchQueryParams:
         None,
         description="Filtrar por ID de propietario/cargador del documento (doc.owner.id).",
     )
+    metadata_filters: Optional[str] = Query(
+        None,
+        description=(
+            "Filtros dinámicos de metadatos en formato JSON. "
+            "Ej: {\"numero_acta\": \"123\", \"fecha\": {\"gte\": \"2024-01-01\", \"lte\": \"2024-12-31\"}}"
+        ),
+    )
+    fuzziness: Optional[int] = Query(
+        2,
+        ge=0,
+        le=4,
+        description="Distancia máxima para búsqueda difusa con LEVENSHTEIN_MATCH.",
+    )
+
+
+def _parse_metadata_filters(metadata_filters_raw: Optional[str]) -> dict:
+    if not metadata_filters_raw:
+        return {}
+
+    try:
+        parsed = json.loads(metadata_filters_raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"metadata_filters debe ser un JSON válido: {str(exc)}",
+        ) from exc
+
+    if not isinstance(parsed, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="metadata_filters debe ser un objeto JSON con pares clave-valor.",
+        )
+
+    return parsed
 
 
 @router.get("/", response_model=DocumentListAPIResponse)
@@ -69,6 +104,8 @@ async def get_documents(
 ):
     """Lista documentos paginados con formato estándar y filtros avanzados."""
     resolved_status, allowed_teams = search_context
+
+    metadata_filters = _parse_metadata_filters(params.metadata_filters)
 
     return search_service.search_documents(
         page=page,
@@ -85,6 +122,8 @@ async def get_documents(
         date_from=params.date_from,
         date_to=params.date_to,
         owner_id=params.owner_id,
+        metadata_filters=metadata_filters,
+        fuzziness=params.fuzziness,
     )
 
 
