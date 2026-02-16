@@ -197,6 +197,65 @@ class SearchRepository:
         result = list(cursor)
         return result[0] if result else {"items": [], "total": 0}
 
+
+    def get_metadata_filter_catalog(self, required_document_id: str) -> Optional[Dict[str, Any]]:
+        """Obtiene esquema y campos de metadatos para pintar filtros de búsqueda."""
+        aql = """
+        LET required_doc = FIRST(
+            FOR req IN required_documents
+                FILTER req._key == @required_document_id
+                RETURN { id: req._key, name: req.name, code_default: req.code }
+        )
+
+        LET schema = FIRST(
+            FOR req IN required_documents
+                FILTER req._key == @required_document_id
+                FOR s IN 1..1 OUTBOUND req usa_esquema
+                RETURN { id: s._key, name: s.name, version: s.version, fields: s.fields }
+        )
+
+        LET schema_from_attr = (
+            FOR req IN required_documents
+                FILTER req._key == @required_document_id
+                FILTER req.schema_id != null
+                FOR s IN meta_schemas
+                    FILTER s._key == req.schema_id
+                    LIMIT 1
+                    RETURN { id: s._key, name: s.name, version: s.version, fields: s.fields }
+        )
+
+        LET resolved_schema = schema != null ? schema : FIRST(schema_from_attr)
+
+        RETURN {
+            required_document: required_doc,
+            schema: resolved_schema,
+            metadata_fields: (
+                FOR f IN (resolved_schema != null ? (resolved_schema.fields || []) : [])
+                    SORT TO_NUMBER(f.sortOrder) ASC, f.label ASC
+                    RETURN {
+                        key: f.fieldKey,
+                        label: f.label,
+                        data_type: f.dataType,
+                        input_type: f.typeInput != null ? f.typeInput.key : null,
+                        entity_type: f.entityType != null ? f.entityType.key : null,
+                        required: TO_BOOL(f.isRequired),
+                        sort_order: TO_NUMBER(f.sortOrder)
+                    }
+            )
+        }
+        """
+        cursor = self.db.aql.execute(aql, bind_vars={"required_document_id": required_document_id})
+        result = list(cursor)
+        payload = result[0] if result else None
+        if not payload or not payload.get("required_document"):
+            return None
+
+        if not payload.get("schema"):
+            payload["schema"] = {"id": "", "name": "Sin esquema", "version": None}
+            payload["metadata_fields"] = []
+
+        return payload
+
     def get_entities_with_docs(self) -> List[Dict[str, Any]]:
         aql = """
         FOR doc IN documents

@@ -106,6 +106,20 @@ class SearchService:
                 message="Error interno al procesar la búsqueda."
             )
 
+
+    def get_metadata_filter_catalog(self, required_document_id: str):
+        """Retorna catálogo de filtros basado en el esquema del documento requerido."""
+        data = self.repository.get_metadata_filter_catalog(required_document_id)
+        if not data:
+            return ResponseBuilder.error_response(
+                message="No se encontró el documento requerido o no tiene esquema asociado."
+            )
+
+        return ResponseBuilder.success_response(
+            data=data,
+            message="Catálogo de filtros obtenido exitosamente."
+        )
+
     def get_available_entities(self):
         """Retorna las entities (Carreras/Facultades) que TIENEN documentos asociados."""
         entities_data = self.repository.get_entities_with_docs()

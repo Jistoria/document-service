@@ -106,6 +106,23 @@ class DocumentListResponse(BaseModel):
 T = TypeVar('T')
 
 
+
+
+class MetadataFilterOption(BaseModel):
+    key: str
+    label: str
+    data_type: Optional[str] = None
+    input_type: Optional[str] = None
+    entity_type: Optional[str] = None
+    required: bool = False
+    sort_order: int = 0
+
+
+class MetadataFilterCatalog(BaseModel):
+    required_document: RequiredDocumentRef
+    schema: SchemaRef
+    metadata_fields: List[MetadataFilterOption]
+
 class ApiResponse(BaseModel, Generic[T]):
     success: bool
     message: str
@@ -116,3 +133,4 @@ class ApiResponse(BaseModel, Generic[T]):
 DocumentDetailResponse = ApiResponse[DocumentDetail]
 DocumentListAPIResponse = ApiResponse[DocumentListResponse]
 EntityListAPIResponse = ApiResponse[List[EntityRef]]
+MetadataFilterCatalogResponse = ApiResponse[MetadataFilterCatalog]

@@ -8,7 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from src.core.security.auth import AuthContext, get_auth_context
 
 from .dependencies import resolve_status_and_teams
-from .models import DocumentDetailResponse, DocumentListAPIResponse, EntityListAPIResponse
+from .models import (
+    DocumentDetailResponse,
+    DocumentListAPIResponse,
+    EntityListAPIResponse,
+    MetadataFilterCatalogResponse,
+)
 from .service import search_service
 
 router = APIRouter(prefix="/documents", tags=["Search & Retrieval"])
@@ -134,6 +139,20 @@ async def get_search_filters():
     Útil para llenar los filtros en el Frontend.
     """
     return search_service.get_available_entities()
+
+
+@router.get("/filters/metadata-catalog", response_model=MetadataFilterCatalogResponse)
+async def get_metadata_filter_catalog(required_document_id: str = Query(..., description="ID del documento requerido")):
+    """
+    Retorna el catálogo de filtros de metadata para un documento requerido.
+    Incluye el esquema asociado y los campos listos para pintar en frontend.
+    """
+    result = search_service.get_metadata_filter_catalog(required_document_id)
+
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail=result["message"])
+
+    return result
 
 
 @router.get("/{doc_id}", response_model=DocumentDetailResponse)
