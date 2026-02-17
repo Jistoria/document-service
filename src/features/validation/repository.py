@@ -61,12 +61,17 @@ class ValidationRepository:
         FOR d IN documents
             FILTER d._key == @key
 
+            LET current_display_name = COALESCE(
+                d.display_name,
+                (HAS(d, 'naming') ? d.naming.display_name : null)
+            )
+
             LET has_new_display_name = @display_name != null
-            LET display_name_changed = has_new_display_name AND @display_name != d.display_name
+            LET display_name_changed = has_new_display_name AND @display_name != current_display_name
 
             LET original_snap_context_name = (
                 HAS(d, 'snap_context_name') AND d.snap_context_name != null
-            ) ? d.snap_context_name : d.display_name
+            ) ? d.snap_context_name : current_display_name
 
             LET next_snap_context_name = display_name_changed
                 ? original_snap_context_name
@@ -74,7 +79,7 @@ class ValidationRepository:
 
             LET next_display_name = display_name_changed
                 ? @display_name
-                : d.display_name
+                : current_display_name
 
             LET current_naming = HAS(d, 'naming') ? d.naming : {}
             LET next_naming = MERGE(current_naming, {

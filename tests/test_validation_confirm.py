@@ -46,12 +46,15 @@ class FakeRepo:
         storage_data,
     ):
         doc = self.docs[doc_id]
-        display_name_changed = display_name is not None and display_name != doc.get("display_name")
+        current_display_name = doc.get("display_name") or (doc.get("naming") or {}).get("display_name")
+        display_name_changed = display_name is not None and display_name != current_display_name
 
         if display_name_changed:
             if doc.get("snap_context_name") is None:
-                doc["snap_context_name"] = doc.get("display_name")
+                doc["snap_context_name"] = current_display_name
             doc["display_name"] = display_name
+        elif doc.get("display_name") is None and current_display_name is not None:
+            doc["display_name"] = current_display_name
 
         doc["validated_metadata"] = clean_metadata
         doc["status"] = "confirmed"
@@ -245,3 +248,34 @@ def test_confirm_persists_display_name_and_is_public_outside_metadata(monkeypatc
     assert docs["doc1"]["naming"]["display_name"] == "Nombre usuario final"
     assert docs["doc1"]["is_public"] is True
     assert docs["doc1"]["validated_metadata"] == {"author": {"value": "Nuevo"}}
+
+
+def test_confirm_sets_snap_when_original_name_only_exists_in_naming(monkeypatch):
+    docs = {
+        "doc1": {
+            "owner_id": "u1",
+            "display_name": None,
+            "naming": {"display_name": "FCVT-TDI - Tecnologías de la Información - 20260217_050249"},
+            "storage": {
+                "pdf_path": "documents-storage/stage/doc1/ocr_pdfa.pdf",
+                "pdf_original_path": "documents-storage/stage/doc1/original.pdf",
+            },
+        }
+    }
+    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService(), archive=FakeArchiveService())
+    service._entities_service = FakeEntitiesService()
+    service.get_db = lambda: None
+
+    monkeypatch.setattr("src.features.validation.service.get_schema_for_document", lambda *_: None)
+    monkeypatch.setattr("src.features.validation.service.sanitize_metadata", lambda metadata, allowed_keys=None: metadata)
+
+    payload = ValidationConfirmRequest(
+        metadata={"author": {"value": "Nuevo"}},
+        display_name="Nombre personalizado final",
+        is_public=False,
+        keep_original=False,
+    )
+    asyncio.run(service.confirm_validation("doc1", payload, current_user_id="u1"))
+
+    assert docs["doc1"]["display_name"] == "Nombre personalizado final"
+    assert docs["doc1"]["snap_context_name"] == "FCVT-TDI - Tecnologías de la Información - 20260217_050249"

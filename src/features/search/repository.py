@@ -33,7 +33,7 @@ class SearchRepository:
                 used_schema: schema,
                 required_document: req_doc,
                 has_integrity_signature: HAS(doc, 'integrity') AND doc.integrity != null AND doc.integrity.manifest_signature != null,
-                has_custom_display_name: HAS(doc, 'snap_context_name') AND doc.snap_context_name != null AND doc.snap_context_name != doc.display_name
+                has_custom_display_name: HAS(doc, 'snap_context_name') AND doc.snap_context_name != null AND doc.snap_context_name != COALESCE(doc.display_name, doc.naming.display_name)
             })
         """
         cursor = self.db.aql.execute(aql, bind_vars={"doc_id": doc_id})
@@ -197,7 +197,7 @@ class SearchRepository:
                     used_schema: schema,
                     required_document: req_doc,
                     has_integrity_signature: HAS(doc, 'integrity') AND doc.integrity != null AND doc.integrity.manifest_signature != null,
-                    has_custom_display_name: HAS(doc, 'snap_context_name') AND doc.snap_context_name != null AND doc.snap_context_name != doc.display_name
+                    has_custom_display_name: HAS(doc, 'snap_context_name') AND doc.snap_context_name != null AND doc.snap_context_name != COALESCE(doc.display_name, doc.naming.display_name)
                 }})
         )
 
