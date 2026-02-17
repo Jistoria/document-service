@@ -3,7 +3,7 @@ import json
 from datetime import date
 from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.core.security.auth import AuthContext, get_auth_context
 
@@ -78,6 +78,18 @@ class DocumentSearchQueryParams:
     )
 
 
+def _resolve_entity_id(entity_id: Optional[str], request: Request) -> Optional[str]:
+    """Soporta formatos legacy como entity_id[0]=... enviados por algunos frontends."""
+    if entity_id:
+        return entity_id
+
+    for key, value in request.query_params.multi_items():
+        if key.startswith("entity_id[") and value:
+            return value
+
+    return None
+
+
 def _parse_metadata_filters(metadata_filters_raw: Optional[str]) -> dict:
     if not metadata_filters_raw:
         return {}
@@ -101,6 +113,7 @@ def _parse_metadata_filters(metadata_filters_raw: Optional[str]) -> dict:
 
 @router.get("/", response_model=DocumentListAPIResponse)
 async def get_documents(
+    request: Request,
     page: int = 1,
     limit: int = 10,
     params: DocumentSearchQueryParams = Depends(),
@@ -111,11 +124,12 @@ async def get_documents(
     resolved_status, allowed_teams = search_context
 
     metadata_filters = _parse_metadata_filters(params.metadata_filters)
+    resolved_entity_id = _resolve_entity_id(params.entity_id, request)
 
     return search_service.search_documents(
         page=page,
         page_size=limit,
-        entity_id=params.entity_id,
+        entity_id=resolved_entity_id,
         process_id=params.process_id,
         status=resolved_status,
         allowed_teams=allowed_teams,
