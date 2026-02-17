@@ -78,6 +78,15 @@ class DocumentSearchQueryParams:
     )
 
 
+def _resolve_indexed_values(param_name: str, request: Request) -> List[str]:
+    """Lee parámetros con formato legacy tipo <param>[0]=..., <param>[1]=..."""
+    values: List[str] = []
+    for key, value in request.query_params.multi_items():
+        if key.startswith(f"{param_name}[") and value:
+            values.append(value)
+    return values
+
+
 def _resolve_entity_id(entity_id: Optional[str], request: Request) -> Optional[str]:
     """Soporta formatos legacy como entity_id[0]=... enviados por algunos frontends."""
     if entity_id:
@@ -88,6 +97,22 @@ def _resolve_entity_id(entity_id: Optional[str], request: Request) -> Optional[s
             return value
 
     return None
+
+
+def _resolve_process_ids(process_id: Optional[str], request: Request) -> List[str]:
+    """Normaliza process_id para soportar query params indexados y repetidos."""
+    indexed_values = _resolve_indexed_values("process_id", request)
+    if indexed_values:
+        return indexed_values
+
+    repeated_values = [value for key, value in request.query_params.multi_items() if key == "process_id" and value]
+    if repeated_values:
+        return repeated_values
+
+    if process_id:
+        return [process_id]
+
+    return []
 
 
 def _parse_metadata_filters(metadata_filters_raw: Optional[str]) -> dict:
@@ -125,12 +150,14 @@ async def get_documents(
 
     metadata_filters = _parse_metadata_filters(params.metadata_filters)
     resolved_entity_id = _resolve_entity_id(params.entity_id, request)
+    resolved_process_ids = _resolve_process_ids(params.process_id, request)
 
     return search_service.search_documents(
         page=page,
         page_size=limit,
         entity_id=resolved_entity_id,
-        process_id=params.process_id,
+        process_id=resolved_process_ids[0] if len(resolved_process_ids) == 1 else None,
+        process_ids=resolved_process_ids,
         status=resolved_status,
         allowed_teams=allowed_teams,
         current_user_id=ctx.user_id,

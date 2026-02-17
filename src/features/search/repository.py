@@ -99,6 +99,21 @@ class SearchRepository:
 
         self._add_filter_if_present(
             filters,
+            "process_ids",
+            aql_filters,
+            bind_vars,
+            """
+            LENGTH(
+                FOR node IN 1..6 OUTBOUND doc complies_with, catalog_belongs_to
+                FILTER node._key IN @process_ids
+                LIMIT 1
+                RETURN 1
+            ) > 0
+            """,
+        )
+
+        self._add_filter_if_present(
+            filters,
             "process_id",
             aql_filters,
             bind_vars,
@@ -370,7 +385,7 @@ class SearchRepository:
         condition: str,
     ) -> None:
         value = filters.get(key)
-        if value is None or value == "":
+        if value is None or value == "" or value == []:
             return
 
         aql_filters.append(condition)
