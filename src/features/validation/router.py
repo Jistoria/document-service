@@ -41,6 +41,7 @@ async def validate_document(
     - Cambia estado a 'validated'.
     """
     try:
+        print(f"[CONFIRMATION_BODY] doc_id={doc_id} payload={payload.model_dump()}")
         return await validation_service.confirm_validation(doc_id, payload, ctx.user_id)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
