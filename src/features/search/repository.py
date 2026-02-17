@@ -31,7 +31,15 @@ class SearchRepository:
             RETURN MERGE(doc, {
                 context_entity: entity,
                 used_schema: schema,
-                required_document: req_doc
+                required_document: req_doc,
+                has_integrity_signature: HAS(doc, 'integrity') AND doc.integrity != null AND doc.integrity.manifest_signature != null,
+                has_custom_display_name: HAS(doc, 'snap_context_name')
+                    AND doc.snap_context_name != null
+                    AND doc.snap_context_name != (
+                        (doc.naming != null AND doc.naming.display_name != null)
+                            ? doc.naming.display_name
+                            : doc.display_name
+                    )
             })
         """
         cursor = self.db.aql.execute(aql, bind_vars={"doc_id": doc_id})
@@ -193,7 +201,15 @@ class SearchRepository:
                 RETURN MERGE(doc, {{
                     context_entity: entity,
                     used_schema: schema,
-                    required_document: req_doc
+                    required_document: req_doc,
+                    has_integrity_signature: HAS(doc, 'integrity') AND doc.integrity != null AND doc.integrity.manifest_signature != null,
+                    has_custom_display_name: HAS(doc, 'snap_context_name')
+                        AND doc.snap_context_name != null
+                        AND doc.snap_context_name != (
+                            (doc.naming != null AND doc.naming.display_name != null)
+                                ? doc.naming.display_name
+                                : doc.display_name
+                        )
                 }})
         )
 
@@ -310,13 +326,12 @@ class SearchRepository:
     def _metadata_value_expr(key_bind: str) -> str:
         """Expresión tolerante para metadatos normalizados y legacy."""
         return (
-            "COALESCE("
-            f"doc.validated_metadata[@{key_bind}].value, "
-            f"doc.validated_metadata[@{key_bind}].display_name, "
-            f"doc.validated_metadata[@{key_bind}].name, "
-            f"doc.validated_metadata[@{key_bind}], "
-            "'')"
-        )
+            "(doc.validated_metadata[@{k}] == null ? '' : "
+            "(doc.validated_metadata[@{k}].value != null ? doc.validated_metadata[@{k}].value : "
+            "(doc.validated_metadata[@{k}].display_name != null ? doc.validated_metadata[@{k}].display_name : "
+            "(doc.validated_metadata[@{k}].name != null ? doc.validated_metadata[@{k}].name : doc.validated_metadata[@{k}])))"
+            ")"
+        ).format(k=key_bind)
 
     @staticmethod
     def _metadata_string_distance(value: str) -> int:

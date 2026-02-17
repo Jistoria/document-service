@@ -67,11 +67,6 @@ class EntitiesService:
             
             logger.info("  🏷️  key='%s': id=%s, name=%s, type=%s", key, entity_id, name, type_str)
 
-            # Skip only if no name is provided
-            if not name:
-                logger.info("  ⏭️  Skipping '%s': no name provided", key)
-                continue
-
             is_user_type_result = is_user_type(type_str)
             looks_like_user_result = looks_like_user_payload(val_obj)
             logger.info("  🔎 Checking if '%s' is user: is_user_type=%s, looks_like_user=%s", 
@@ -119,15 +114,20 @@ class EntitiesService:
                 logger.info("✨ Usuario creado al vuelo: %s (%s)", name, new_id)
                 continue
 
-            # For non-user entities, skip if they already have an id
-            if entity_id:
-                logger.info("  ⏭️  Skipping entity '%s': already has id=%s", key, entity_id)
-                continue
+            collection = map_type_to_collection(type_str) or "entities"
 
-            logger.info("  🏢 Processing as ENTITY (type=%s): %s", type_str, name)
-            new_id = await self._create_new_entity_node(db, name, type_str)
-            target["id"] = new_id
-            logger.info("✨ Entidad creada al vuelo: %s (%s)", name, new_id)
+            if not entity_id:
+                raise ValueError(
+                    f"El campo '{key}' requiere una entidad existente (id obligatorio)."
+                )
+
+            exists = db.collection(collection).has(entity_id)
+            if not exists:
+                raise ValueError(
+                    f"La entidad '{entity_id}' del campo '{key}' no existe en '{collection}'."
+                )
+
+            logger.info("  ✅ Entidad verificada en '%s': %s", collection, entity_id)
 
         return metadata
 
@@ -158,20 +158,6 @@ class EntitiesService:
         IN {edge_name}
         """
         db.aql.execute(upsert_edge_aql, bind_vars={"task_id": task_id, "entity_id": entity_id})
-
-    async def _create_new_entity_node(self, db, name: str, type_str: Optional[str]) -> str:
-        collection = map_type_to_collection(type_str) or "entities"
-        aql = f"""
-        INSERT {{
-            name: @name,
-            type: @type,
-            created_at: DATE_NOW(),
-            source: 'manual_validation_creation'
-        }} IN {collection}
-        RETURN NEW._key
-        """
-        cursor = db.aql.execute(aql, bind_vars={"name": name, "type": type_str})
-        return list(cursor)[0]
 
     def _remove_name_fragments(self, value: Dict[str, Any]) -> None:
         for rm in ("first_name", "last_name"):

@@ -1,12 +1,16 @@
 import logging
 from datetime import datetime
 import re
+from typing import Optional
 
 from src.core.database import db_instance
-from src.features.validation.models import ValidationRequest
+from src.features.validation.models import ValidationConfirmRequest, ValidationRequest
 
+from .archive_service import ArchiveService, archive_service
 from .entities_service import EntitiesService
 from .graph_client import get_graph_client
+from .integrity_service import IntegrityService, integrity_service
+from .repository import ValidationRepository
 from .users_service import UsersService
 from .utils import allowed_keys_from_schema, get_schema_for_document, sanitize_metadata
 from .validators import validate_entity_object
@@ -15,10 +19,24 @@ logger = logging.getLogger(__name__)
 
 
 class ValidationService:
-    def __init__(self):
+    def __init__(
+        self,
+        repository: Optional[ValidationRepository] = None,
+        integrity: Optional[IntegrityService] = None,
+        archive: Optional[ArchiveService] = None,
+    ):
         graph_client = get_graph_client()
         self._users_service = UsersService(graph_client)
         self._entities_service = EntitiesService(self._users_service)
+        self._repository = repository
+        self._integrity = integrity or integrity_service
+        self._archive = archive or archive_service
+
+    @property
+    def repository(self) -> ValidationRepository:
+        if self._repository is None:
+            self._repository = ValidationRepository()
+        return self._repository
 
     def get_db(self):
         return db_instance.get_db()
@@ -84,8 +102,14 @@ class ValidationService:
                         report["is_valid"] = False
                         report["warnings"].append("Formato de fecha inválido (YYYY-MM-DD).")
 
-                elif data_type == "json" and isinstance(value, dict):
-                    await validate_entity_object(db, value, entity_type, report)
+                elif data_type == "json":
+                    if entity_type and not isinstance(value, dict):
+                        report["is_valid"] = False
+                        report["warnings"].append(
+                            "El campo requiere un objeto con estructura de entidad/usuario (no string libre)."
+                        )
+                    elif isinstance(value, dict):
+                        await validate_entity_object(db, value, entity_type, report)
 
             if report["is_valid"]:
                 earned_weight += weight
@@ -103,8 +127,39 @@ class ValidationService:
             "summary_warnings": [f.get("warnings")[0] for f in fields_report if f["warnings"]],
         }
 
-    async def confirm_validation(self, task_id: str, payload: ValidationRequest):
+    async def confirm_validation(self, task_id: str, payload: ValidationConfirmRequest, current_user_id: str):
         db = self.get_db()
+
+        doc_snapshot = self.repository.get_document_snapshot(task_id)
+        if not doc_snapshot:
+            raise ValueError("Documento no encontrado")
+
+        owner_id = doc_snapshot.get("owner_id")
+        if owner_id != current_user_id:
+            raise PermissionError("Solo el owner del documento puede confirmar")
+
+        storage_data = doc_snapshot.get("storage") or {}
+        original_pdf_path = storage_data.get("pdf_original_path")
+        selected_pdf_path = storage_data.get("pdf_path")
+
+        storage_for_confirm = dict(storage_data)
+        if payload.keep_original:
+            if not original_pdf_path:
+                raise ValueError("No existe archivo PDF original para usar como principal")
+            selected_pdf_path = original_pdf_path
+
+        storage_for_confirm["pdf_path"] = selected_pdf_path
+        storage_for_confirm["primary_source"] = "original" if payload.keep_original else "ocr_pdfa"
+        storage_for_confirm["pdfa_conversion_required"] = payload.keep_original
+        storage_for_confirm["pdfa_conversion_status"] = "pending" if payload.keep_original else None
+
+        needs_archive_promotion = any(
+            isinstance(v, str) and ("stage-validate/" in v or "/stage/" in v)
+            for v in storage_for_confirm.values()
+        )
+        if needs_archive_promotion:
+            storage_for_confirm = self._archive.promote_from_stage(doc_snapshot, storage_for_confirm)
+            selected_pdf_path = storage_for_confirm.get("pdf_path")
 
         raw_metadata = payload.metadata or {}
 
@@ -116,26 +171,62 @@ class ValidationService:
 
         clean_metadata = sanitize_metadata(metadata_with_ids, allowed_keys=allowed_keys)
 
-        update_doc_aql = """
-        FOR d IN documents
-            FILTER d._key == @key
-            UPDATE d WITH {
-                validated_metadata: @clean_data,
-                status: 'confirmed',
-                integrity_warnings: [],
-                manually_validated_at: DATE_NOW(),
-                is_locked: true
-            } IN documents
-            OPTIONS { mergeObjects: false }
-            RETURN NEW
-        """
-        db.aql.execute(update_doc_aql, bind_vars={"key": task_id, "clean_data": clean_metadata})
+        integrity_payload = self._integrity.build_integrity_payload(
+            doc_id=task_id,
+            validated_metadata=clean_metadata,
+            confirmed_by=current_user_id,
+            keep_original=payload.keep_original,
+            selected_pdf_path=selected_pdf_path,
+        )
+
+        updated_doc = self.repository.confirm_document(
+            doc_id=task_id,
+            clean_metadata=clean_metadata,
+            is_public=payload.is_public,
+            display_name=payload.display_name,
+            confirmed_by=current_user_id,
+            keep_original=payload.keep_original,
+            integrity_payload=integrity_payload,
+            storage_data=storage_for_confirm,
+        )
+
+        if not updated_doc:
+            raise ValueError("No se pudo actualizar el documento en confirmación")
+
+        if updated_doc.get("is_public") != payload.is_public:
+            raise RuntimeError("La actualización de is_public no se persistió correctamente")
+
+        persisted_display_name = (updated_doc.get("naming") or {}).get("display_name")
+        if payload.display_name is not None and persisted_display_name != payload.display_name:
+            raise RuntimeError("La actualización de display_name no se persistió correctamente")
 
         for item in clean_metadata.values():
             if isinstance(item, dict) and item.get("id"):
                 self._entities_service.add_semantic_relation(db, task_id, item["id"], "references")
 
         return {"status": "success", "message": "Documento confirmado y metadata limpiada."}
+
+    async def verify_document_integrity(self, task_id: str, current_user_id: str):
+        doc_snapshot = self.repository.get_document_integrity_snapshot(task_id)
+        if not doc_snapshot:
+            raise ValueError("Documento no encontrado")
+
+        owner_id = doc_snapshot.get("owner_id")
+        is_public = bool(doc_snapshot.get("is_public"))
+        if owner_id != current_user_id and not is_public:
+            raise PermissionError("No tienes permisos para verificar la integridad de este documento")
+
+        result = self._integrity.verify_integrity_payload(
+            validated_metadata=doc_snapshot.get("validated_metadata") or {},
+            storage=doc_snapshot.get("storage") or {},
+            integrity=doc_snapshot.get("integrity") or {},
+        )
+
+        return {
+            "status": "success" if result["is_valid"] else "warning",
+            "document_id": task_id,
+            "integrity": result,
+        }
 
 
 validation_service = ValidationService()

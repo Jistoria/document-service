@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, Dict, Optional
 
 from src.features.ocr_updates.pipeline.person_normalizer import build_search_terms
@@ -17,18 +18,34 @@ class UsersService:
         self._graph_client = graph_client
 
     async def verify_user_exists(self, db, user_id: str) -> bool:
-        """Verify if a user exists in the dms_users collection."""
+        """Verify if a user exists in dms_users by _key, guid_ms or user_id."""
         try:
+            normalized_key = re.sub(r"[^a-z0-9_]", "", (user_id or "").strip().lower().replace("-", ""))
             aql = """
             FOR user IN dms_users
                 FILTER user._key == @user_id
+                   OR (@normalized_key != '' AND user._key == @normalized_key)
+                   OR user.guid_ms == @user_id
+                   OR (@normalized_key != '' AND user.guid_ms == @normalized_key)
+                   OR user.user_id == @user_id
                 LIMIT 1
                 RETURN user
             """
-            cursor = db.aql.execute(aql, bind_vars={"user_id": user_id})
+            cursor = db.aql.execute(
+                aql,
+                bind_vars={
+                    "user_id": user_id,
+                    "normalized_key": normalized_key,
+                },
+            )
             users = list(cursor)
             exists = len(users) > 0
-            logger.info("🔍 User verification: id=%s exists=%s", user_id, exists)
+            logger.info(
+                "🔍 User verification: id=%s normalized_key=%s exists=%s",
+                user_id,
+                normalized_key,
+                exists,
+            )
             return exists
         except Exception as e:
             logger.error("Error verifying user existence: %s", e)
