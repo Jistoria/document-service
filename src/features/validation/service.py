@@ -179,7 +179,7 @@ class ValidationService:
             selected_pdf_path=selected_pdf_path,
         )
 
-        self.repository.confirm_document(
+        updated_doc = self.repository.confirm_document(
             doc_id=task_id,
             clean_metadata=clean_metadata,
             is_public=payload.is_public,
@@ -189,6 +189,15 @@ class ValidationService:
             integrity_payload=integrity_payload,
             storage_data=storage_for_confirm,
         )
+
+        if not updated_doc:
+            raise ValueError("No se pudo actualizar el documento en confirmación")
+
+        if updated_doc.get("is_public") != payload.is_public:
+            raise RuntimeError("La actualización de is_public no se persistió correctamente")
+
+        if payload.display_name is not None and updated_doc.get("display_name") != payload.display_name:
+            raise RuntimeError("La actualización de display_name no se persistió correctamente")
 
         for item in clean_metadata.values():
             if isinstance(item, dict) and item.get("id"):

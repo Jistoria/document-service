@@ -60,6 +60,10 @@ class FakeRepo:
         doc["keep_original"] = keep_original
         doc["integrity"] = integrity_payload
         doc["storage"] = storage_data
+        doc["naming"] = {
+            **doc.get("naming", {}),
+            "display_name": doc.get("display_name"),
+        }
         return doc
 
 
@@ -207,3 +211,37 @@ def test_confirm_with_keep_original_true_requires_original_pdf(monkeypatch):
 
     with pytest.raises(ValueError, match="PDF original"):
         asyncio.run(service.confirm_validation("doc1", payload, current_user_id="u1"))
+
+
+def test_confirm_persists_display_name_and_is_public_outside_metadata(monkeypatch):
+    docs = {
+        "doc1": {
+            "owner_id": "u1",
+            "display_name": "Nombre institucional",
+            "naming": {"display_name": "Nombre institucional"},
+            "storage": {
+                "pdf_path": "documents-storage/stage/doc1/ocr_pdfa.pdf",
+                "pdf_original_path": "documents-storage/stage/doc1/original.pdf",
+            },
+            "validated_metadata": {"author": {"value": "Viejo"}},
+        }
+    }
+    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService(), archive=FakeArchiveService())
+    service._entities_service = FakeEntitiesService()
+    service.get_db = lambda: None
+
+    monkeypatch.setattr("src.features.validation.service.get_schema_for_document", lambda *_: None)
+    monkeypatch.setattr("src.features.validation.service.sanitize_metadata", lambda metadata, allowed_keys=None: metadata)
+
+    payload = ValidationConfirmRequest(
+        metadata={"author": {"value": "Nuevo"}},
+        display_name="Nombre usuario final",
+        is_public=True,
+        keep_original=False,
+    )
+    asyncio.run(service.confirm_validation("doc1", payload, current_user_id="u1"))
+
+    assert docs["doc1"]["display_name"] == "Nombre usuario final"
+    assert docs["doc1"]["naming"]["display_name"] == "Nombre usuario final"
+    assert docs["doc1"]["is_public"] is True
+    assert docs["doc1"]["validated_metadata"] == {"author": {"value": "Nuevo"}}

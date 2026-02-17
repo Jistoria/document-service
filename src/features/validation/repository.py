@@ -60,6 +60,11 @@ class ValidationRepository:
                 ? @display_name
                 : d.display_name
 
+            LET current_naming = HAS(d, 'naming') ? d.naming : {}
+            LET next_naming = MERGE(current_naming, {
+                display_name: next_display_name
+            })
+
             UPDATE d WITH {
                 validated_metadata: @clean_data,
                 status: 'confirmed',
@@ -71,6 +76,7 @@ class ValidationRepository:
                 keep_original: @keep_original,
                 is_locked: true,
                 display_name: next_display_name,
+                naming: next_naming,
                 snap_context_name: next_snap_context_name,
                 storage: @storage_data,
                 integrity: @integrity_payload
