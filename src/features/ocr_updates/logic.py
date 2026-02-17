@@ -47,7 +47,11 @@ async def process_ocr_result(payload: dict):
         status = "attention_required" if has_invalid_fields or integrity_warnings else "validated"
 
         # 4) Naming desde el grafo (DEVUELVE DICT)
-        naming = build_context_names(db, context_entity_id)
+        naming = build_context_names(
+            db,
+            context_entity_id,
+            required_document=parsed.required_document,
+        )
 
         # 5) Construcción record final
         document_record = build_document_record(
