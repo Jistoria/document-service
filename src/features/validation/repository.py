@@ -16,7 +16,14 @@ class ValidationRepository:
                 owner_id: d.owner.id,
                 display_name: d.display_name,
                 snap_context_name: d.snap_context_name,
-                storage: d.storage
+                storage: d.storage,
+                naming: d.naming,
+                context_snapshot: d.context_snapshot,
+                process: FIRST(
+                    FOR req IN 1..1 OUTBOUND d complies_with
+                        FOR proc IN 1..1 OUTBOUND req catalog_belongs_to
+                            RETURN { id: proc._key, name: proc.name, code: proc.code }
+                )
             }
         """
         result = list(self.db.aql.execute(aql, bind_vars={"doc_id": doc_id}))
@@ -32,6 +39,7 @@ class ValidationRepository:
         confirmed_by: str,
         keep_original: bool,
         integrity_payload: Dict[str, Any],
+        storage_data: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         update_doc_aql = """
         FOR d IN documents
@@ -52,18 +60,6 @@ class ValidationRepository:
                 ? @display_name
                 : d.display_name
 
-            LET current_storage = HAS(d, 'storage') ? d.storage : {}
-            LET original_pdf_path = current_storage.pdf_original_path
-            LET can_use_original = @keep_original AND original_pdf_path != null
-            LET selected_pdf_path = can_use_original ? original_pdf_path : current_storage.pdf_path
-
-            LET next_storage = MERGE(current_storage, {
-                pdf_path: selected_pdf_path,
-                primary_source: can_use_original ? 'original' : 'ocr_pdfa',
-                pdfa_conversion_required: can_use_original,
-                pdfa_conversion_status: can_use_original ? 'pending' : null
-            })
-
             UPDATE d WITH {
                 validated_metadata: @clean_data,
                 status: 'confirmed',
@@ -76,7 +72,7 @@ class ValidationRepository:
                 is_locked: true,
                 display_name: next_display_name,
                 snap_context_name: next_snap_context_name,
-                storage: next_storage,
+                storage: @storage_data,
                 integrity: @integrity_payload
             } IN documents
             OPTIONS { mergeObjects: false }
@@ -94,6 +90,7 @@ class ValidationRepository:
                     "confirmed_by": confirmed_by,
                     "keep_original": keep_original,
                     "integrity_payload": integrity_payload,
+                    "storage_data": storage_data,
                 },
             )
         )

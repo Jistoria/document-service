@@ -28,6 +28,9 @@ class FakeRepo:
             "display_name": doc.get("display_name"),
             "snap_context_name": doc.get("snap_context_name"),
             "storage": doc.get("storage", {}),
+            "naming": doc.get("naming", {}),
+            "context_snapshot": doc.get("context_snapshot", {}),
+            "process": doc.get("process", {}),
         }
 
     def confirm_document(
@@ -40,6 +43,7 @@ class FakeRepo:
         confirmed_by,
         keep_original,
         integrity_payload,
+        storage_data,
     ):
         doc = self.docs[doc_id]
         display_name_changed = display_name is not None and display_name != doc.get("display_name")
@@ -55,6 +59,7 @@ class FakeRepo:
         doc["is_public"] = is_public
         doc["keep_original"] = keep_original
         doc["integrity"] = integrity_payload
+        doc["storage"] = storage_data
         return doc
 
 
@@ -63,9 +68,24 @@ class FakeIntegrityService:
         return {"manifest": kwargs, "manifest_signature": "fake-signature"}
 
 
+class FakeArchiveService:
+    def promote_from_stage(self, doc_snapshot, storage_data):
+        promoted = dict(storage_data)
+        promoted["pdf_path"] = promoted.get("pdf_path", "").replace("stage-validate/", "archive/").replace("stage/", "archive/")
+        if promoted.get("json_path"):
+            promoted["json_path"] = promoted["json_path"].replace("stage-validate/", "archive/").replace("stage/", "archive/")
+        if promoted.get("text_path"):
+            promoted["text_path"] = promoted["text_path"].replace("stage-validate/", "archive/").replace("stage/", "archive/")
+        if promoted.get("pdf_original_path"):
+            promoted["pdf_original_path"] = promoted["pdf_original_path"].replace("stage-validate/", "archive/").replace("stage/", "archive/")
+        promoted["archive_prefix"] = "archive/fake"
+        promoted["storage_tier"] = "archive"
+        return promoted
+
+
 def test_confirm_without_display_name_keeps_names(monkeypatch):
     docs = {"doc1": {"owner_id": "u1", "display_name": "Nombre Institucional - 20260216_222908"}}
-    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService())
+    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService(), archive=FakeArchiveService())
     service._entities_service = FakeEntitiesService()
     service.get_db = lambda: None
 
@@ -87,7 +107,7 @@ def test_confirm_with_different_display_name_sets_snap_and_updates_name(monkeypa
             "storage": {"pdf_path": "documents-storage/stage/doc1/pdf.pdf"},
         }
     }
-    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService())
+    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService(), archive=FakeArchiveService())
     service._entities_service = FakeEntitiesService()
     service.get_db = lambda: None
 
@@ -103,7 +123,7 @@ def test_confirm_with_different_display_name_sets_snap_and_updates_name(monkeypa
 
 def test_confirm_with_same_display_name_does_not_set_snap(monkeypatch):
     docs = {"doc1": {"owner_id": "u1", "display_name": "Nombre actual"}}
-    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService())
+    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService(), archive=FakeArchiveService())
     service._entities_service = FakeEntitiesService()
     service.get_db = lambda: None
 
@@ -128,7 +148,7 @@ def test_confirm_sets_is_public(monkeypatch):
             },
         }
     }
-    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService())
+    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService(), archive=FakeArchiveService())
     service._entities_service = FakeEntitiesService()
     service.get_db = lambda: None
 
@@ -152,7 +172,7 @@ def test_confirm_with_keep_original_true_sets_flag_and_integrity(monkeypatch):
             },
         }
     }
-    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService())
+    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService(), archive=FakeArchiveService())
     service._entities_service = FakeEntitiesService()
     service.get_db = lambda: None
 
@@ -164,6 +184,8 @@ def test_confirm_with_keep_original_true_sets_flag_and_integrity(monkeypatch):
 
     assert docs["doc1"]["keep_original"] is True
     assert docs["doc1"]["integrity"]["manifest_signature"] == "fake-signature"
+    assert docs["doc1"]["storage"]["storage_tier"] == "archive"
+    assert docs["doc1"]["storage"]["pdf_path"].startswith("documents-storage/archive/")
 
 
 def test_confirm_with_keep_original_true_requires_original_pdf(monkeypatch):
@@ -174,7 +196,7 @@ def test_confirm_with_keep_original_true_requires_original_pdf(monkeypatch):
             "storage": {"pdf_path": "documents-storage/stage/doc1/ocr_pdfa.pdf"},
         }
     }
-    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService())
+    service = ValidationService(repository=FakeRepo(docs), integrity=FakeIntegrityService(), archive=FakeArchiveService())
     service._entities_service = FakeEntitiesService()
     service.get_db = lambda: None
 

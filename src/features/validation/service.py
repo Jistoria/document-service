@@ -6,6 +6,7 @@ from typing import Optional
 from src.core.database import db_instance
 from src.features.validation.models import ValidationConfirmRequest, ValidationRequest
 
+from .archive_service import ArchiveService, archive_service
 from .entities_service import EntitiesService
 from .graph_client import get_graph_client
 from .integrity_service import IntegrityService, integrity_service
@@ -22,12 +23,14 @@ class ValidationService:
         self,
         repository: Optional[ValidationRepository] = None,
         integrity: Optional[IntegrityService] = None,
+        archive: Optional[ArchiveService] = None,
     ):
         graph_client = get_graph_client()
         self._users_service = UsersService(graph_client)
         self._entities_service = EntitiesService(self._users_service)
         self._repository = repository
         self._integrity = integrity or integrity_service
+        self._archive = archive or archive_service
 
     @property
     def repository(self) -> ValidationRepository:
@@ -138,10 +141,25 @@ class ValidationService:
         storage_data = doc_snapshot.get("storage") or {}
         original_pdf_path = storage_data.get("pdf_original_path")
         selected_pdf_path = storage_data.get("pdf_path")
+
+        storage_for_confirm = dict(storage_data)
         if payload.keep_original:
             if not original_pdf_path:
                 raise ValueError("No existe archivo PDF original para usar como principal")
             selected_pdf_path = original_pdf_path
+
+        storage_for_confirm["pdf_path"] = selected_pdf_path
+        storage_for_confirm["primary_source"] = "original" if payload.keep_original else "ocr_pdfa"
+        storage_for_confirm["pdfa_conversion_required"] = payload.keep_original
+        storage_for_confirm["pdfa_conversion_status"] = "pending" if payload.keep_original else None
+
+        needs_archive_promotion = any(
+            isinstance(v, str) and ("stage-validate/" in v or "/stage/" in v)
+            for v in storage_for_confirm.values()
+        )
+        if needs_archive_promotion:
+            storage_for_confirm = self._archive.promote_from_stage(doc_snapshot, storage_for_confirm)
+            selected_pdf_path = storage_for_confirm.get("pdf_path")
 
         raw_metadata = payload.metadata or {}
 
@@ -169,6 +187,7 @@ class ValidationService:
             confirmed_by=current_user_id,
             keep_original=payload.keep_original,
             integrity_payload=integrity_payload,
+            storage_data=storage_for_confirm,
         )
 
         for item in clean_metadata.values():
