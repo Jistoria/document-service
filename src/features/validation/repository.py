@@ -61,10 +61,9 @@ class ValidationRepository:
         FOR d IN documents
             FILTER d._key == @key
 
-            LET current_display_name = COALESCE(
-                d.display_name,
-                (HAS(d, 'naming') ? d.naming.display_name : null)
-            )
+            LET current_display_name = d.display_name != null
+                ? d.display_name
+                : (HAS(d, 'naming') ? d.naming.display_name : null)
 
             LET has_new_display_name = @display_name != null
             LET display_name_changed = has_new_display_name AND @display_name != current_display_name
