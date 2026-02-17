@@ -99,8 +99,14 @@ class ValidationService:
                         report["is_valid"] = False
                         report["warnings"].append("Formato de fecha inválido (YYYY-MM-DD).")
 
-                elif data_type == "json" and isinstance(value, dict):
-                    await validate_entity_object(db, value, entity_type, report)
+                elif data_type == "json":
+                    if entity_type and not isinstance(value, dict):
+                        report["is_valid"] = False
+                        report["warnings"].append(
+                            "El campo requiere un objeto con estructura de entidad/usuario (no string libre)."
+                        )
+                    elif isinstance(value, dict):
+                        await validate_entity_object(db, value, entity_type, report)
 
             if report["is_valid"]:
                 earned_weight += weight
