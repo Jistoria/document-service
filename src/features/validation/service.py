@@ -1,12 +1,14 @@
 import logging
 from datetime import datetime
 import re
+from typing import Optional
 
 from src.core.database import db_instance
-from src.features.validation.models import ValidationRequest
+from src.features.validation.models import ValidationConfirmRequest, ValidationRequest
 
 from .entities_service import EntitiesService
 from .graph_client import get_graph_client
+from .repository import ValidationRepository
 from .users_service import UsersService
 from .utils import allowed_keys_from_schema, get_schema_for_document, sanitize_metadata
 from .validators import validate_entity_object
@@ -15,10 +17,17 @@ logger = logging.getLogger(__name__)
 
 
 class ValidationService:
-    def __init__(self):
+    def __init__(self, repository: Optional[ValidationRepository] = None):
         graph_client = get_graph_client()
         self._users_service = UsersService(graph_client)
         self._entities_service = EntitiesService(self._users_service)
+        self._repository = repository
+
+    @property
+    def repository(self) -> ValidationRepository:
+        if self._repository is None:
+            self._repository = ValidationRepository()
+        return self._repository
 
     def get_db(self):
         return db_instance.get_db()
@@ -103,8 +112,16 @@ class ValidationService:
             "summary_warnings": [f.get("warnings")[0] for f in fields_report if f["warnings"]],
         }
 
-    async def confirm_validation(self, task_id: str, payload: ValidationRequest):
+    async def confirm_validation(self, task_id: str, payload: ValidationConfirmRequest, current_user_id: str):
         db = self.get_db()
+
+        doc_snapshot = self.repository.get_document_snapshot(task_id)
+        if not doc_snapshot:
+            raise ValueError("Documento no encontrado")
+
+        owner_id = doc_snapshot.get("owner_id")
+        if owner_id != current_user_id:
+            raise PermissionError("Solo el owner del documento puede confirmar")
 
         raw_metadata = payload.metadata or {}
 
@@ -116,20 +133,13 @@ class ValidationService:
 
         clean_metadata = sanitize_metadata(metadata_with_ids, allowed_keys=allowed_keys)
 
-        update_doc_aql = """
-        FOR d IN documents
-            FILTER d._key == @key
-            UPDATE d WITH {
-                validated_metadata: @clean_data,
-                status: 'confirmed',
-                integrity_warnings: [],
-                manually_validated_at: DATE_NOW(),
-                is_locked: true
-            } IN documents
-            OPTIONS { mergeObjects: false }
-            RETURN NEW
-        """
-        db.aql.execute(update_doc_aql, bind_vars={"key": task_id, "clean_data": clean_metadata})
+        self.repository.confirm_document(
+            doc_id=task_id,
+            clean_metadata=clean_metadata,
+            is_public=payload.is_public,
+            display_name=payload.display_name,
+            confirmed_by=current_user_id,
+        )
 
         for item in clean_metadata.values():
             if isinstance(item, dict) and item.get("id"):

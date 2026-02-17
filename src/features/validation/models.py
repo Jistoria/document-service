@@ -1,9 +1,31 @@
-from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 
+from pydantic import BaseModel, field_validator
+
+
 class ValidationRequest(BaseModel):
-    # El diccionario de metadatos corregidos por el usuario
+    # El diccionario de metadatos corregidos por el usuario (pre-validación)
     metadata: Dict[str, Any]
+
+
+class ValidationConfirmRequest(BaseModel):
+    metadata: Dict[str, Any]
+    display_name: Optional[str] = None
+    is_public: bool = False
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("display_name no puede ser vacío")
+        if len(normalized) < 3:
+            raise ValueError("display_name debe tener al menos 3 caracteres")
+        return normalized
+
 
 class FieldReport(BaseModel):
     key: str
