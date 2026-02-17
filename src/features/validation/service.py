@@ -196,7 +196,8 @@ class ValidationService:
         if updated_doc.get("is_public") != payload.is_public:
             raise RuntimeError("La actualización de is_public no se persistió correctamente")
 
-        if payload.display_name is not None and updated_doc.get("display_name") != payload.display_name:
+        persisted_display_name = (updated_doc.get("naming") or {}).get("display_name")
+        if payload.display_name is not None and persisted_display_name != payload.display_name:
             raise RuntimeError("La actualización de display_name no se persistió correctamente")
 
         for item in clean_metadata.values():

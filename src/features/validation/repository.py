@@ -61,9 +61,9 @@ class ValidationRepository:
         FOR d IN documents
             FILTER d._key == @key
 
-            LET current_display_name = d.display_name != null
-                ? d.display_name
-                : (HAS(d, 'naming') ? d.naming.display_name : null)
+            LET current_display_name = (HAS(d, 'naming') AND d.naming.display_name != null)
+                ? d.naming.display_name
+                : d.display_name
 
             LET has_new_display_name = @display_name != null
             LET display_name_changed = has_new_display_name AND @display_name != current_display_name
@@ -95,7 +95,6 @@ class ValidationRepository:
                 is_public: @is_public,
                 keep_original: @keep_original,
                 is_locked: true,
-                display_name: next_display_name,
                 naming: next_naming,
                 snap_context_name: next_snap_context_name,
                 storage: @storage_data,

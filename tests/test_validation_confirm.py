@@ -52,7 +52,6 @@ class FakeRepo:
         if display_name_changed:
             if doc.get("snap_context_name") is None:
                 doc["snap_context_name"] = current_display_name
-            doc["display_name"] = display_name
         elif doc.get("display_name") is None and current_display_name is not None:
             doc["display_name"] = current_display_name
 
@@ -65,7 +64,7 @@ class FakeRepo:
         doc["storage"] = storage_data
         doc["naming"] = {
             **doc.get("naming", {}),
-            "display_name": doc.get("display_name"),
+            "display_name": display_name if display_name is not None else current_display_name,
         }
         return doc
 
@@ -124,7 +123,7 @@ def test_confirm_with_different_display_name_sets_snap_and_updates_name(monkeypa
     payload = ValidationConfirmRequest(metadata={"campo": "valor"}, display_name="Nombre Amigable", is_public=True)
     asyncio.run(service.confirm_validation("doc1", payload, current_user_id="u1"))
 
-    assert docs["doc1"]["display_name"] == "Nombre Amigable"
+    assert docs["doc1"]["naming"]["display_name"] == "Nombre Amigable"
     assert docs["doc1"]["snap_context_name"] == "Nombre Institucional - 20260216_222908"
 
 
@@ -140,7 +139,7 @@ def test_confirm_with_same_display_name_does_not_set_snap(monkeypatch):
     payload = ValidationConfirmRequest(metadata={"campo": "valor"}, display_name="Nombre actual", is_public=True)
     asyncio.run(service.confirm_validation("doc1", payload, current_user_id="u1"))
 
-    assert docs["doc1"]["display_name"] == "Nombre actual"
+    assert docs["doc1"]["naming"]["display_name"] == "Nombre actual"
     assert docs["doc1"].get("snap_context_name") is None
 
 
@@ -244,8 +243,8 @@ def test_confirm_persists_display_name_and_is_public_outside_metadata(monkeypatc
     )
     asyncio.run(service.confirm_validation("doc1", payload, current_user_id="u1"))
 
-    assert docs["doc1"]["display_name"] == "Nombre usuario final"
     assert docs["doc1"]["naming"]["display_name"] == "Nombre usuario final"
+    assert docs["doc1"]["display_name"] == "Nombre institucional"
     assert docs["doc1"]["is_public"] is True
     assert docs["doc1"]["validated_metadata"] == {"author": {"value": "Nuevo"}}
 
@@ -277,5 +276,5 @@ def test_confirm_sets_snap_when_original_name_only_exists_in_naming(monkeypatch)
     )
     asyncio.run(service.confirm_validation("doc1", payload, current_user_id="u1"))
 
-    assert docs["doc1"]["display_name"] == "Nombre personalizado final"
+    assert docs["doc1"]["naming"]["display_name"] == "Nombre personalizado final"
     assert docs["doc1"]["snap_context_name"] == "FCVT-TDI - Tecnologías de la Información - 20260217_050249"

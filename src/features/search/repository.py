@@ -36,9 +36,9 @@ class SearchRepository:
                 has_custom_display_name: HAS(doc, 'snap_context_name')
                     AND doc.snap_context_name != null
                     AND doc.snap_context_name != (
-                        doc.display_name != null
-                            ? doc.display_name
-                            : (doc.naming != null ? doc.naming.display_name : null)
+                        (doc.naming != null AND doc.naming.display_name != null)
+                            ? doc.naming.display_name
+                            : doc.display_name
                     )
             })
         """
@@ -206,9 +206,9 @@ class SearchRepository:
                     has_custom_display_name: HAS(doc, 'snap_context_name')
                         AND doc.snap_context_name != null
                         AND doc.snap_context_name != (
-                            doc.display_name != null
-                                ? doc.display_name
-                                : (doc.naming != null ? doc.naming.display_name : null)
+                            (doc.naming != null AND doc.naming.display_name != null)
+                                ? doc.naming.display_name
+                                : doc.display_name
                         )
                 }})
         )
