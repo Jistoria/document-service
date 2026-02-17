@@ -205,5 +205,27 @@ class ValidationService:
 
         return {"status": "success", "message": "Documento confirmado y metadata limpiada."}
 
+    async def verify_document_integrity(self, task_id: str, current_user_id: str):
+        doc_snapshot = self.repository.get_document_integrity_snapshot(task_id)
+        if not doc_snapshot:
+            raise ValueError("Documento no encontrado")
+
+        owner_id = doc_snapshot.get("owner_id")
+        is_public = bool(doc_snapshot.get("is_public"))
+        if owner_id != current_user_id and not is_public:
+            raise PermissionError("No tienes permisos para verificar la integridad de este documento")
+
+        result = self._integrity.verify_integrity_payload(
+            validated_metadata=doc_snapshot.get("validated_metadata") or {},
+            storage=doc_snapshot.get("storage") or {},
+            integrity=doc_snapshot.get("integrity") or {},
+        )
+
+        return {
+            "status": "success" if result["is_valid"] else "warning",
+            "document_id": task_id,
+            "integrity": result,
+        }
+
 
 validation_service = ValidationService()

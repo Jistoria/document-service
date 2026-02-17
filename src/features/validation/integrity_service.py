@@ -76,5 +76,52 @@ class IntegrityService:
             "manifest_signature": manifest_signature,
         }
 
+    def verify_integrity_payload(
+        self,
+        *,
+        validated_metadata: Dict[str, Any],
+        storage: Dict[str, Any],
+        integrity: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        manifest = (integrity or {}).get("manifest") or {}
+        stored_signature = (integrity or {}).get("manifest_signature")
+
+        if not manifest or not stored_signature:
+            return {
+                "is_valid": False,
+                "signature_valid": False,
+                "metadata_hash_valid": False,
+                "pdf_hash_valid": False,
+                "message": "No existe manifiesto/firma de integridad para verificar.",
+            }
+
+        canonical_manifest = json.dumps(
+            manifest,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        recalculated_signature = self._sign(canonical_manifest)
+        signature_valid = hmac.compare_digest(recalculated_signature, stored_signature)
+
+        expected_metadata_hash = ((manifest.get("hashes") or {}).get("validated_metadata_sha256"))
+        current_metadata_hash = self._hash_json(validated_metadata or {})
+        metadata_hash_valid = expected_metadata_hash == current_metadata_hash
+
+        expected_pdf_hash = ((manifest.get("hashes") or {}).get("pdf_sha256"))
+        selected_pdf_path = manifest.get("selected_pdf_path") or (storage or {}).get("pdf_path")
+        current_pdf_hash = self._hash_storage_object(selected_pdf_path) if selected_pdf_path else None
+        pdf_hash_valid = expected_pdf_hash == current_pdf_hash
+
+        is_valid = signature_valid and metadata_hash_valid and pdf_hash_valid
+        return {
+            "is_valid": is_valid,
+            "signature_valid": signature_valid,
+            "metadata_hash_valid": metadata_hash_valid,
+            "pdf_hash_valid": pdf_hash_valid,
+            "selected_pdf_path": selected_pdf_path,
+            "message": "Integridad verificada correctamente." if is_valid else "Fallo en verificación de integridad.",
+        }
+
 
 integrity_service = IntegrityService()

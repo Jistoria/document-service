@@ -62,6 +62,10 @@ class DocumentDetail(BaseModel):
 
     original_filename: Optional[str] = "Sin nombre"
     processing_time: Optional[float] = None
+    is_public: Optional[bool] = True
+    keep_original: Optional[bool] = False
+    has_custom_display_name: Optional[bool] = False
+    has_integrity_signature: Optional[bool] = False
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

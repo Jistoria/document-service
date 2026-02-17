@@ -29,6 +29,22 @@ class ValidationRepository:
         result = list(self.db.aql.execute(aql, bind_vars={"doc_id": doc_id}))
         return result[0] if result else None
 
+    def get_document_integrity_snapshot(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        aql = """
+        FOR d IN documents
+            FILTER d._key == @doc_id
+            RETURN {
+                _key: d._key,
+                owner_id: d.owner.id,
+                is_public: d.is_public,
+                validated_metadata: d.validated_metadata,
+                storage: d.storage,
+                integrity: d.integrity
+            }
+        """
+        result = list(self.db.aql.execute(aql, bind_vars={"doc_id": doc_id}))
+        return result[0] if result else None
+
     def confirm_document(
         self,
         *,

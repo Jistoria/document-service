@@ -50,3 +50,19 @@ async def validate_document(
     except Exception as e:
         logger.exception("Error validating document")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{doc_id}/integrity/verify")
+async def verify_document_integrity(
+    doc_id: str,
+    ctx: AuthContext = Depends(get_auth_context),
+):
+    try:
+        return await validation_service.verify_document_integrity(doc_id, ctx.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Error verifying document integrity")
+        raise HTTPException(status_code=500, detail=str(e))
