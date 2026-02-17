@@ -8,6 +8,7 @@ from src.features.validation.models import ValidationConfirmRequest, ValidationR
 
 from .entities_service import EntitiesService
 from .graph_client import get_graph_client
+from .integrity_service import IntegrityService, integrity_service
 from .repository import ValidationRepository
 from .users_service import UsersService
 from .utils import allowed_keys_from_schema, get_schema_for_document, sanitize_metadata
@@ -17,11 +18,16 @@ logger = logging.getLogger(__name__)
 
 
 class ValidationService:
-    def __init__(self, repository: Optional[ValidationRepository] = None):
+    def __init__(
+        self,
+        repository: Optional[ValidationRepository] = None,
+        integrity: Optional[IntegrityService] = None,
+    ):
         graph_client = get_graph_client()
         self._users_service = UsersService(graph_client)
         self._entities_service = EntitiesService(self._users_service)
         self._repository = repository
+        self._integrity = integrity or integrity_service
 
     @property
     def repository(self) -> ValidationRepository:
@@ -123,6 +129,14 @@ class ValidationService:
         if owner_id != current_user_id:
             raise PermissionError("Solo el owner del documento puede confirmar")
 
+        storage_data = doc_snapshot.get("storage") or {}
+        original_pdf_path = storage_data.get("pdf_original_path")
+        selected_pdf_path = storage_data.get("pdf_path")
+        if payload.keep_original:
+            if not original_pdf_path:
+                raise ValueError("No existe archivo PDF original para usar como principal")
+            selected_pdf_path = original_pdf_path
+
         raw_metadata = payload.metadata or {}
 
         schema = get_schema_for_document(db, task_id)
@@ -133,12 +147,22 @@ class ValidationService:
 
         clean_metadata = sanitize_metadata(metadata_with_ids, allowed_keys=allowed_keys)
 
+        integrity_payload = self._integrity.build_integrity_payload(
+            doc_id=task_id,
+            validated_metadata=clean_metadata,
+            confirmed_by=current_user_id,
+            keep_original=payload.keep_original,
+            selected_pdf_path=selected_pdf_path,
+        )
+
         self.repository.confirm_document(
             doc_id=task_id,
             clean_metadata=clean_metadata,
             is_public=payload.is_public,
             display_name=payload.display_name,
             confirmed_by=current_user_id,
+            keep_original=payload.keep_original,
+            integrity_payload=integrity_payload,
         )
 
         for item in clean_metadata.values():

@@ -12,6 +12,7 @@ class ValidationConfirmRequest(BaseModel):
     metadata: Dict[str, Any]
     display_name: Optional[str] = None
     is_public: bool = False
+    keep_original: bool = False
 
     @field_validator("display_name")
     @classmethod
