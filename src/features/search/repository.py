@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.core.database import db_instance
 
@@ -99,6 +99,21 @@ class SearchRepository:
 
         self._add_filter_if_present(
             filters,
+            "process_ids",
+            aql_filters,
+            bind_vars,
+            """
+            LENGTH(
+                FOR node IN 1..6 OUTBOUND doc complies_with, catalog_belongs_to
+                FILTER node._key IN @process_ids
+                LIMIT 1
+                RETURN 1
+            ) > 0
+            """,
+        )
+
+        self._add_filter_if_present(
+            filters,
             "process_id",
             aql_filters,
             bind_vars,
@@ -111,17 +126,6 @@ class SearchRepository:
             ) > 0
             """,
         )
-
-        if filters.get("search"):
-            aql_filters.append(
-                """
-                (
-                    CONTAINS(LOWER(doc.naming.display_name), LOWER(@search))
-                    OR CONTAINS(LOWER(doc.original_filename), LOWER(@search))
-                )
-                """
-            )
-            bind_vars["search"] = filters["search"]
 
         self._add_filter_if_present(
             filters,
@@ -169,14 +173,17 @@ class SearchRepository:
         )
 
         self._add_date_filters(filters, aql_filters, bind_vars)
+        self._add_metadata_filters(filters, aql_filters, bind_vars)
 
         filter_clause = f"FILTER {' AND '.join(aql_filters)}" if aql_filters else ""
+        search_clause, search_sort_clause, source, bind_vars = self._build_search_clause(filters, bind_vars)
 
         aql = f"""
         LET docs = (
-            FOR doc IN documents
+            FOR doc IN {source}
+                {search_clause}
                 {filter_clause}
-                SORT doc.created_at DESC
+                {search_sort_clause}
                 LIMIT @offset, @limit
 
                 LET entity = (FOR v IN 1..1 OUTBOUND doc file_located_in RETURN {{ id: v._key, name: v.name, type: v.type }})[0]
@@ -191,7 +198,8 @@ class SearchRepository:
         )
 
         LET total_count = (
-            FOR doc IN documents
+            FOR doc IN {source}
+                {search_clause}
                 {filter_clause}
                 COLLECT WITH COUNT INTO total
                 RETURN total
@@ -203,6 +211,65 @@ class SearchRepository:
         cursor = self.db.aql.execute(aql, bind_vars=bind_vars)
         result = list(cursor)
         return result[0] if result else {"items": [], "total": 0}
+
+
+    def get_metadata_filter_catalog(self, required_document_id: str) -> Optional[Dict[str, Any]]:
+        """Obtiene esquema y campos de metadatos para pintar filtros de búsqueda."""
+        aql = """
+        LET required_doc = FIRST(
+            FOR req IN required_documents
+                FILTER req._key == @required_document_id
+                RETURN { id: req._key, name: req.name, code_default: req.code }
+        )
+
+        LET schema = FIRST(
+            FOR req IN required_documents
+                FILTER req._key == @required_document_id
+                FOR s IN 1..1 OUTBOUND req usa_esquema
+                RETURN { id: s._key, name: s.name, version: s.version, fields: s.fields }
+        )
+
+        LET schema_from_attr = (
+            FOR req IN required_documents
+                FILTER req._key == @required_document_id
+                FILTER req.schema_id != null
+                FOR s IN meta_schemas
+                    FILTER s._key == req.schema_id
+                    LIMIT 1
+                    RETURN { id: s._key, name: s.name, version: s.version, fields: s.fields }
+        )
+
+        LET resolved_schema = schema != null ? schema : FIRST(schema_from_attr)
+
+        RETURN {
+            required_document: required_doc,
+            schema: resolved_schema,
+            metadata_fields: (
+                FOR f IN (resolved_schema != null ? (resolved_schema.fields || []) : [])
+                    SORT TO_NUMBER(f.sortOrder) ASC, f.label ASC
+                    RETURN {
+                        key: f.fieldKey,
+                        label: f.label,
+                        data_type: f.dataType,
+                        input_type: f.typeInput != null ? f.typeInput.key : null,
+                        entity_type: f.entityType != null ? f.entityType.key : null,
+                        required: TO_BOOL(f.isRequired),
+                        sort_order: TO_NUMBER(f.sortOrder)
+                    }
+            )
+        }
+        """
+        cursor = self.db.aql.execute(aql, bind_vars={"required_document_id": required_document_id})
+        result = list(cursor)
+        payload = result[0] if result else None
+        if not payload or not payload.get("required_document"):
+            return None
+
+        if not payload.get("schema"):
+            payload["schema"] = {"id": "", "name": "Sin esquema", "version": None}
+            payload["metadata_fields"] = []
+
+        return payload
 
     def get_entities_with_docs(self) -> List[Dict[str, Any]]:
         aql = """
@@ -217,6 +284,98 @@ class SearchRepository:
         cursor = self.db.aql.execute(aql)
         return list(cursor)
 
+
+    def _build_search_clause(
+        self,
+        filters: Dict[str, Any],
+        bind_vars: Dict[str, Any],
+    ) -> Tuple[str, str, str, Dict[str, Any]]:
+        search = filters.get("search")
+        if not search:
+            return "", "SORT doc.created_at DESC", "documents", bind_vars
+
+        bind_vars["search"] = search
+        search_clause = """
+        SEARCH ANALYZER(
+            PHRASE(doc.naming.display_name, @search)
+            OR doc.naming.display_name IN TOKENS(@search, "text_es")
+            OR doc.original_filename IN TOKENS(@search, "text_es"),
+            "text_es"
+        )
+        """
+
+        return search_clause, "SORT BM25(doc) DESC, doc.created_at DESC", "documents_search_view", bind_vars
+
+    @staticmethod
+    def _metadata_value_expr(key_bind: str) -> str:
+        """Expresión tolerante para metadatos normalizados y legacy."""
+        return (
+            "COALESCE("
+            f"doc.validated_metadata[@{key_bind}].value, "
+            f"doc.validated_metadata[@{key_bind}].display_name, "
+            f"doc.validated_metadata[@{key_bind}].name, "
+            f"doc.validated_metadata[@{key_bind}], "
+            "'')"
+        )
+
+    @staticmethod
+    def _metadata_string_distance(value: str) -> int:
+        """Fuzziness moderado para no impactar drásticamente precisión."""
+        normalized_length = len((value or "").strip())
+        if normalized_length <= 6:
+            return 1
+        if normalized_length <= 16:
+            return 2
+        return 3
+
+    @classmethod
+    def _add_metadata_filters(
+        cls,
+        filters: Dict[str, Any],
+        aql_filters: List[str],
+        bind_vars: Dict[str, Any],
+    ) -> None:
+        metadata_filters = filters.get("metadata_filters")
+        if not isinstance(metadata_filters, dict) or not metadata_filters:
+            return
+
+        for index, (clave, valor) in enumerate(metadata_filters.items()):
+            key_bind = f"meta_key_{index}"
+            bind_vars[key_bind] = clave
+            metadata_value_expr = cls._metadata_value_expr(key_bind)
+
+            if isinstance(valor, dict):
+                gte = valor.get("gte")
+                lte = valor.get("lte")
+
+                if gte is not None:
+                    gte_bind = f"meta_gte_{index}"
+                    bind_vars[gte_bind] = gte
+                    aql_filters.append(f"{metadata_value_expr} >= @{gte_bind}")
+
+                if lte is not None:
+                    lte_bind = f"meta_lte_{index}"
+                    bind_vars[lte_bind] = lte
+                    aql_filters.append(f"{metadata_value_expr} <= @{lte_bind}")
+
+                continue
+
+            value_bind = f"meta_value_{index}"
+            bind_vars[value_bind] = valor
+
+            if isinstance(valor, str):
+                distance_bind = f"meta_distance_{index}"
+                bind_vars[distance_bind] = cls._metadata_string_distance(valor)
+                aql_filters.append(
+                    "(" 
+                    f"CONTAINS(LOWER(TO_STRING({metadata_value_expr})), LOWER(@{value_bind})) "
+                    f"OR LEVENSHTEIN_DISTANCE(LOWER(TO_STRING({metadata_value_expr})), LOWER(@{value_bind})) <= @{distance_bind}"
+                    ")"
+                )
+                continue
+
+            aql_filters.append(f"{metadata_value_expr} == @{value_bind}")
+
     @staticmethod
     def _add_filter_if_present(
         filters: Dict[str, Any],
@@ -226,7 +385,7 @@ class SearchRepository:
         condition: str,
     ) -> None:
         value = filters.get(key)
-        if value is None or value == "":
+        if value is None or value == "" or value == []:
             return
 
         aql_filters.append(condition)

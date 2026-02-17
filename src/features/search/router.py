@@ -1,13 +1,19 @@
 from dataclasses import dataclass
+import json
 from datetime import date
 from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from src.core.security.auth import AuthContext, get_auth_context
 
 from .dependencies import resolve_status_and_teams
-from .models import DocumentDetailResponse, DocumentListAPIResponse, EntityListAPIResponse
+from .models import (
+    DocumentDetailResponse,
+    DocumentListAPIResponse,
+    EntityListAPIResponse,
+    MetadataFilterCatalogResponse,
+)
 from .service import search_service
 
 router = APIRouter(prefix="/documents", tags=["Search & Retrieval"])
@@ -57,10 +63,82 @@ class DocumentSearchQueryParams:
         None,
         description="Filtrar por ID de propietario/cargador del documento (doc.owner.id).",
     )
+    metadata_filters: Optional[str] = Query(
+        None,
+        description=(
+            "Filtros dinámicos de metadatos en formato JSON. "
+            "Ej: {\"numero_acta\": \"123\", \"fecha\": {\"gte\": \"2024-01-01\", \"lte\": \"2024-12-31\"}}"
+        ),
+    )
+    fuzziness: Optional[int] = Query(
+        2,
+        ge=0,
+        le=4,
+        description="Distancia máxima para búsqueda difusa con LEVENSHTEIN_MATCH.",
+    )
+
+
+def _resolve_indexed_values(param_name: str, request: Request) -> List[str]:
+    """Lee parámetros con formato legacy tipo <param>[0]=..., <param>[1]=..."""
+    values: List[str] = []
+    for key, value in request.query_params.multi_items():
+        if key.startswith(f"{param_name}[") and value:
+            values.append(value)
+    return values
+
+
+def _resolve_entity_id(entity_id: Optional[str], request: Request) -> Optional[str]:
+    """Soporta formatos legacy como entity_id[0]=... enviados por algunos frontends."""
+    if entity_id:
+        return entity_id
+
+    for key, value in request.query_params.multi_items():
+        if key.startswith("entity_id[") and value:
+            return value
+
+    return None
+
+
+def _resolve_process_ids(process_id: Optional[str], request: Request) -> List[str]:
+    """Normaliza process_id para soportar query params indexados y repetidos."""
+    indexed_values = _resolve_indexed_values("process_id", request)
+    if indexed_values:
+        return indexed_values
+
+    repeated_values = [value for key, value in request.query_params.multi_items() if key == "process_id" and value]
+    if repeated_values:
+        return repeated_values
+
+    if process_id:
+        return [process_id]
+
+    return []
+
+
+def _parse_metadata_filters(metadata_filters_raw: Optional[str]) -> dict:
+    if not metadata_filters_raw:
+        return {}
+
+    try:
+        parsed = json.loads(metadata_filters_raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"metadata_filters debe ser un JSON válido: {str(exc)}",
+        ) from exc
+
+    if not isinstance(parsed, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="metadata_filters debe ser un objeto JSON con pares clave-valor.",
+        )
+
+    return parsed
 
 
 @router.get("/", response_model=DocumentListAPIResponse)
 async def get_documents(
+    request: Request,
     page: int = 1,
     limit: int = 10,
     params: DocumentSearchQueryParams = Depends(),
@@ -70,11 +148,16 @@ async def get_documents(
     """Lista documentos paginados con formato estándar y filtros avanzados."""
     resolved_status, allowed_teams = search_context
 
+    metadata_filters = _parse_metadata_filters(params.metadata_filters)
+    resolved_entity_id = _resolve_entity_id(params.entity_id, request)
+    resolved_process_ids = _resolve_process_ids(params.process_id, request)
+
     return search_service.search_documents(
         page=page,
         page_size=limit,
-        entity_id=params.entity_id,
-        process_id=params.process_id,
+        entity_id=resolved_entity_id,
+        process_id=resolved_process_ids[0] if len(resolved_process_ids) == 1 else None,
+        process_ids=resolved_process_ids,
         status=resolved_status,
         allowed_teams=allowed_teams,
         current_user_id=ctx.user_id,
@@ -85,6 +168,8 @@ async def get_documents(
         date_from=params.date_from,
         date_to=params.date_to,
         owner_id=params.owner_id,
+        metadata_filters=metadata_filters,
+        fuzziness=params.fuzziness,
     )
 
 
@@ -95,6 +180,20 @@ async def get_search_filters():
     Útil para llenar los filtros en el Frontend.
     """
     return search_service.get_available_entities()
+
+
+@router.get("/filters/metadata-catalog", response_model=MetadataFilterCatalogResponse)
+async def get_metadata_filter_catalog(required_document_id: str = Query(..., description="ID del documento requerido")):
+    """
+    Retorna el catálogo de filtros de metadata para un documento requerido.
+    Incluye el esquema asociado y los campos listos para pintar en frontend.
+    """
+    result = search_service.get_metadata_filter_catalog(required_document_id)
+
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail=result["message"])
+
+    return result
 
 
 @router.get("/{doc_id}", response_model=DocumentDetailResponse)

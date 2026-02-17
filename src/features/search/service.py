@@ -1,6 +1,6 @@
 import logging
 from datetime import date
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from arango.exceptions import ArangoError
 
@@ -40,6 +40,7 @@ class SearchService:
         page_size: int = 10,
         entity_id: Optional[str] = None,
         process_id: Optional[str] = None,
+        process_ids: Optional[List[str]] = None,
         status: Optional[str] = None,
         allowed_teams: Optional[List[str]] = None,
         current_user_id: Optional[str] = None,
@@ -50,6 +51,8 @@ class SearchService:
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
         owner_id: Optional[str] = None,
+        metadata_filters: Optional[Dict[str, Any]] = None,
+        fuzziness: Optional[int] = None,
     ):
         """Busca documentos con filtros dinámicos y paginación."""
         try:
@@ -67,7 +70,8 @@ class SearchService:
                 "valid_owner_ids": valid_owner_ids,
                 "status": status,
                 "entity_id": entity_id,
-                "process_id": process_id,
+                "process_id": process_id if not process_ids else None,
+                "process_ids": process_ids or [],
                 "search": search,
                 "required_document_id": required_document_id,
                 "referenced_entity_id": referenced_entity_id,
@@ -75,6 +79,8 @@ class SearchService:
                 "date_from": date_from,
                 "date_to": date_to,
                 "owner_id": owner_id,
+                "metadata_filters": metadata_filters or {},
+                "fuzziness": fuzziness,
             }
 
             if status in VERIFICATION_STATUSES and current_user_id:
@@ -101,6 +107,20 @@ class SearchService:
             return ResponseBuilder.error_response(
                 message="Error interno al procesar la búsqueda."
             )
+
+
+    def get_metadata_filter_catalog(self, required_document_id: str):
+        """Retorna catálogo de filtros basado en el esquema del documento requerido."""
+        data = self.repository.get_metadata_filter_catalog(required_document_id)
+        if not data:
+            return ResponseBuilder.error_response(
+                message="No se encontró el documento requerido o no tiene esquema asociado."
+            )
+
+        return ResponseBuilder.success_response(
+            data=data,
+            message="Catálogo de filtros obtenido exitosamente."
+        )
 
     def get_available_entities(self):
         """Retorna las entities (Carreras/Facultades) que TIENEN documentos asociados."""

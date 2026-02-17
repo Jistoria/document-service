@@ -79,6 +79,28 @@ def filter_entity_fields(val: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in out.items() if v is not None}
 
 
+def extract_metadata_value(value: Any) -> Any:
+    """
+    Devuelve el valor normalizado para búsqueda:
+    - user/entity dict -> display_name/name/code/email (prioridad)
+    - otros dict -> primer campo representativo
+    - escalar -> mismo valor
+    """
+    if not isinstance(value, dict):
+        return value
+
+    for key in ("display_name", "name", "code", "email", "id"):
+        candidate = value.get(key)
+        if candidate not in (None, ""):
+            return candidate
+
+    for candidate in value.values():
+        if candidate not in (None, ""):
+            return candidate
+
+    return None
+
+
 def sanitize_metadata(raw_data: Dict[str, Any], allowed_keys: Optional[set[str]] = None) -> Dict[str, Any]:
     """
     Normaliza y limpia la metadata:
@@ -94,7 +116,7 @@ def sanitize_metadata(raw_data: Dict[str, Any], allowed_keys: Optional[set[str]]
             continue
 
         if not isinstance(item, dict):
-            clean[key] = item
+            clean[key] = {"value": item}
             continue
 
         if "value" in item:
@@ -105,7 +127,9 @@ def sanitize_metadata(raw_data: Dict[str, Any], allowed_keys: Optional[set[str]]
             val = item.get("value")
 
             if isinstance(val, dict):
-                clean[key] = filter_entity_fields(val)
+                normalized = filter_entity_fields(val)
+                normalized["value"] = extract_metadata_value(normalized)
+                clean[key] = normalized
                 continue
 
             if val is None:
@@ -115,13 +139,19 @@ def sanitize_metadata(raw_data: Dict[str, Any], allowed_keys: Optional[set[str]]
                     "email": item.get("email"),
                 }
                 minimal = {k: v for k, v in minimal.items() if v}
-                clean[key] = minimal if minimal else None
+                if minimal:
+                    minimal["value"] = extract_metadata_value(minimal)
+                    clean[key] = minimal
+                else:
+                    clean[key] = None
                 continue
 
-            clean[key] = val
+            clean[key] = {"value": val}
             continue
 
-        clean[key] = item
+        normalized_item = dict(item)
+        normalized_item["value"] = extract_metadata_value(normalized_item)
+        clean[key] = normalized_item
 
     return clean
 
