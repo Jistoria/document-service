@@ -284,8 +284,7 @@ class SearchRepository:
         SEARCH ANALYZER(
             PHRASE(doc.naming.display_name, @search)
             OR doc.naming.display_name IN TOKENS(@search, "text_es")
-            OR doc.original_filename IN TOKENS(@search, "text_es")
-            OR doc.validated_metadata[*].value IN TOKENS(@search, "text_es"),
+            OR doc.original_filename IN TOKENS(@search, "text_es"),
             "text_es"
         )
         """
