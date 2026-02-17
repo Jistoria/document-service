@@ -1,3 +1,4 @@
+import re
 from typing import Any, Dict, Optional
 
 from .utils import is_user_type, map_type_to_collection
@@ -22,6 +23,28 @@ async def validate_entity_object(db, value_dict: Dict[str, Any], entity_type: Op
     if entity_id:
         if collection:
             exists = db.collection(collection).has(entity_id)
+
+            if not exists and is_user:
+                normalized_key = re.sub(r"[^a-z0-9_]", "", str(entity_id).strip().lower().replace("-", ""))
+                user_aql = """
+                FOR u IN dms_users
+                    FILTER u.guid_ms == @entity_id
+                       OR (@normalized_key != '' AND u.guid_ms == @normalized_key)
+                       OR u.user_id == @entity_id
+                    LIMIT 1
+                    RETURN u._key
+                """
+                found = list(
+                    db.aql.execute(
+                        user_aql,
+                        bind_vars={
+                            "entity_id": entity_id,
+                            "normalized_key": normalized_key,
+                        },
+                    )
+                )
+                exists = len(found) > 0
+
             if not exists:
                 report["is_valid"] = False
                 if is_user:
