@@ -51,20 +51,21 @@ class SearchRepository:
         aql_filters: List[str] = []
         bind_vars: Dict[str, Any] = {"offset": offset, "limit": limit}
 
-        self._add_filter_if_present(
-            filters,
-            "valid_owner_ids",
-            aql_filters,
-            bind_vars,
-            """
-            LENGTH(
-                FOR owner IN 1..2 OUTBOUND doc file_located_in, belongs_to
-                FILTER owner._key IN @valid_owner_ids
-                LIMIT 1
-                RETURN 1
-            ) > 0
-            """,
-        )
+        if filters.get("enforce_team_scope"):
+            bind_vars["valid_owner_ids"] = filters.get("valid_owner_ids") or []
+            aql_filters.append(
+                """
+                (
+                    TO_BOOL(doc.is_public)
+                    OR LENGTH(
+                        FOR owner IN 1..2 OUTBOUND doc file_located_in, belongs_to
+                        FILTER owner._key IN @valid_owner_ids
+                        LIMIT 1
+                        RETURN 1
+                    ) > 0
+                )
+                """
+            )
 
         self._add_filter_if_present(
             filters,
