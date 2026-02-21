@@ -123,8 +123,8 @@ class CatalogService:
         FOR proc IN processes
             FILTER proc._key == @process_id
             FOR doc IN INBOUND proc catalog_belongs_to
-                # Filtrar solo nodos de required_documents (aunque la colección del edge apunta, validamos)
-                # En catalog_belongs_to: doc -> proc
+                // Filtrar solo nodos de required_documents (aunque la colección del edge apunta, validamos)
+                // En catalog_belongs_to: doc -> proc
                 FILTER IS_SAME_COLLECTION('required_documents', doc)
                 SORT doc.name ASC
                 RETURN {
