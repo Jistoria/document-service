@@ -74,7 +74,11 @@ def get_context_chain(db, entity_id: str, max_hops: int = 10) -> List[Dict[str, 
     return list(reversed(vertices))
 
 
-def build_context_names(db, entity_id: Optional[str]) -> Dict[str, Any]:
+def build_context_names(
+    db,
+    entity_id: Optional[str],
+    required_document: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Construye:
       - name_path
@@ -87,6 +91,8 @@ def build_context_names(db, entity_id: Optional[str]) -> Dict[str, Any]:
     """
     ts = _now_tag()
 
+    required_document = required_document or {}
+
     if not entity_id:
         return {
             "display_name": f"document_{ts}",
@@ -96,6 +102,7 @@ def build_context_names(db, entity_id: Optional[str]) -> Dict[str, Any]:
             "code_path": "",
             "code_numeric_path": "",
             "timestamp_tag": ts,
+            "required_document_code": _safe_str(required_document.get("code")) or None,
         }
 
     chain = get_context_chain(db, entity_id)
@@ -109,6 +116,7 @@ def build_context_names(db, entity_id: Optional[str]) -> Dict[str, Any]:
             "code_path": "",
             "code_numeric_path": "",
             "timestamp_tag": ts,
+            "required_document_code": _safe_str(required_document.get("code")) or None,
         }
 
     # Normaliza nodos
@@ -120,6 +128,19 @@ def build_context_names(db, entity_id: Optional[str]) -> Dict[str, Any]:
             "type": v.get("type") or "",
             "code": v.get("code"),
             "code_numeric": v.get("code_numeric"),
+        })
+
+    required_name = _safe_str(required_document.get("name"))
+    required_code = _safe_str(required_document.get("code"))
+    has_required_document_data = bool(required_name or required_code)
+
+    if has_required_document_data:
+        norm.append({
+            "_key": required_document.get("id"),
+            "name": required_name,
+            "type": "required_document",
+            "code": required_code,
+            "code_numeric": None,
         })
 
     # paths completos
@@ -135,26 +156,54 @@ def build_context_names(db, entity_id: Optional[str]) -> Dict[str, Any]:
     # Si la cadena tiene mas de 1 elemento, el penultimo es el padre inmediato
     parent = norm[-2] if len(norm) >= 2 else None
 
-    # Code combo
-    if parent:
-        code_combo = _safe_join([_safe_str(parent.get("code")), _safe_str(leaf.get("code"))], "-")
-    else:
-        code_combo = _safe_str(leaf.get("code"))
+    target_name = _safe_str(leaf.get("name"))
 
-    name_code = f"{code_combo} - {_safe_str(leaf.get('name'))}".strip(" -") if code_combo else _safe_str(
-        leaf.get("name"))
+    # Code combo
+    if has_required_document_data:
+        context_norm = norm[:-1]
+        context_leaf = context_norm[-1] if context_norm else None
+        context_parent = context_norm[-2] if len(context_norm) >= 2 else None
+
+        if context_leaf:
+            base_code_combo = _safe_join([
+                _safe_str(context_parent.get("code")) if context_parent else "",
+                _safe_str(context_leaf.get("code")),
+            ], "-")
+        else:
+            base_code_combo = ""
+
+        code_combo = _safe_join([base_code_combo, _safe_str(leaf.get("code"))], "-")
+    else:
+        if parent:
+            code_combo = _safe_join([_safe_str(parent.get("code")), _safe_str(leaf.get("code"))], "-")
+        else:
+            code_combo = _safe_str(leaf.get("code"))
+
+    name_code = f"{code_combo} - {target_name}".strip(" -") if code_combo else target_name
 
     # Numeric combo
-    if parent:
-        num_combo = _safe_join([
-            _fmt_numeric(parent.get("code_numeric")),
-            _fmt_numeric(leaf.get("code_numeric")),
-        ], "-")
-    else:
-        num_combo = _fmt_numeric(leaf.get("code_numeric"))
+    if has_required_document_data:
+        context_norm = norm[:-1]
+        context_leaf = context_norm[-1] if context_norm else None
+        context_parent = context_norm[-2] if len(context_norm) >= 2 else None
 
-    name_code_numeric = f"{num_combo} - {_safe_str(leaf.get('name'))}".strip(" -") if num_combo else _safe_str(
-        leaf.get("name"))
+        if context_leaf:
+            num_combo = _safe_join([
+                _fmt_numeric(context_parent.get("code_numeric")) if context_parent else "",
+                _fmt_numeric(context_leaf.get("code_numeric")),
+            ], "-")
+        else:
+            num_combo = ""
+    else:
+        if parent:
+            num_combo = _safe_join([
+                _fmt_numeric(parent.get("code_numeric")),
+                _fmt_numeric(leaf.get("code_numeric")),
+            ], "-")
+        else:
+            num_combo = _fmt_numeric(leaf.get("code_numeric"))
+
+    name_code_numeric = f"{num_combo} - {target_name}".strip(" -") if num_combo else target_name
 
     display_name = f"{name_code} - {ts}".strip()
 
@@ -166,5 +215,6 @@ def build_context_names(db, entity_id: Optional[str]) -> Dict[str, Any]:
         "code_path": code_path,
         "code_numeric_path": code_numeric_path,
         "timestamp_tag": ts,
+        "required_document_code": required_code or None,
         "path_nodes": norm,  # opcional por si quieres debug
     }

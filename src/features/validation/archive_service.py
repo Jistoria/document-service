@@ -13,7 +13,7 @@ class ArchiveService:
         return cleaned or "na"
 
     def _object_name(self, storage_path: str) -> str:
-        from src.core.storage import storage_instance
+        storage_instance = self._get_storage_instance()
 
         return storage_path.replace(f"{storage_instance.bucket_name}/", "", 1)
 
@@ -32,12 +32,17 @@ class ArchiveService:
 
         return f"archive/{'/'.join(context_segments)}/{process_seg}/{required_seg}/{doc_snapshot['_key']}"
 
+    def _get_storage_instance(self):
+        from src.core.storage import storage_instance
+
+        return storage_instance
+
     def promote_from_stage(self, doc_snapshot: Dict[str, Any], storage_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Copia archivos desde stage-validate a ruta archivística según grafo/contexto.
         Retorna storage actualizado con nuevas rutas y metadatos de promoción.
         """
-        from src.core.storage import storage_instance
+        storage_instance = self._get_storage_instance()
 
         prefix = self._build_archive_prefix(doc_snapshot)
         updated = dict(storage_data or {})
@@ -48,6 +53,8 @@ class ArchiveService:
             "text_path": "extracted.txt",
             "pdf_original_path": "original.pdf",
         }
+
+        copied_stage_sources = set()
 
         for key, filename in mapping.items():
             src = updated.get(key)
@@ -63,14 +70,18 @@ class ArchiveService:
                 CopySource(storage_instance.bucket_name, src_object),
             )
 
-            # Si viene de stage, lo removemos para completar el "move"
             if src_object.startswith("stage-validate/"):
-                try:
-                    storage_instance.client.remove_object(storage_instance.bucket_name, src_object)
-                except Exception:
-                    pass
+                copied_stage_sources.add(src_object)
 
             updated[key] = f"{storage_instance.bucket_name}/{dst_object}"
+
+        # Eliminamos al final para soportar casos donde varias claves apuntan
+        # al mismo objeto origen (ej. keep_original=true usa pdf_original_path como pdf_path principal)
+        for src_object in copied_stage_sources:
+            try:
+                storage_instance.client.remove_object(storage_instance.bucket_name, src_object)
+            except Exception:
+                pass
 
         updated["archive_prefix"] = prefix
         updated["storage_tier"] = "archive"

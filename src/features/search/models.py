@@ -19,6 +19,7 @@ class NamingRef(BaseModel):
     code_path: Optional[str] = None
     code_numeric_path: Optional[str] = None
     timestamp_tag: Optional[str] = None
+    required_document_code: Optional[str] = None
 
 
 class StorageRef(BaseModel):

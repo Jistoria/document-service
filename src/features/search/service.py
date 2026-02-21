@@ -58,16 +58,11 @@ class SearchService:
         try:
             db = self.get_db()
 
-            valid_owner_ids = self._validate_permissions(db, allowed_teams)
-            if valid_owner_ids is None:
-                return ResponseBuilder.build_empty_list_response(
-                    page,
-                    page_size,
-                    message="No tienes permisos sobre ninguna entidad válida.",
-                )
+            valid_owner_ids, enforce_team_scope = self._validate_permissions(db, allowed_teams)
 
             filters = {
                 "valid_owner_ids": valid_owner_ids,
+                "enforce_team_scope": enforce_team_scope,
                 "status": status,
                 "entity_id": entity_id,
                 "process_id": process_id if not process_ids else None,
@@ -131,15 +126,13 @@ class SearchService:
         self,
         db,
         allowed_teams: Optional[List[str]],
-    ) -> Optional[List[str]]:
-        """Valida y resuelve los permisos del usuario a UUIDs de entidades."""
+    ) -> tuple[List[str], bool]:
+        """Valida permisos y define si se aplica filtro por equipos o visibilidad pública."""
         if allowed_teams and "*" not in allowed_teams:
             valid_owner_ids = self._resolve_team_codes_to_uuids(db, allowed_teams)
-            if not valid_owner_ids:
-                return None
-            return valid_owner_ids
+            return valid_owner_ids, True
 
-        return []
+        return [], False
 
     def _resolve_team_codes_to_uuids(self, db, allowed_teams: List[str]) -> List[str]:
         """Traduce códigos de permisos a _key UUID de entidades."""

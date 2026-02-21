@@ -37,6 +37,8 @@ def build_document_record(
             "code_path": naming.get("code_path"),
             "code_numeric_path": naming.get("code_numeric_path"),
             "timestamp_tag": naming.get("timestamp_tag"),
+            "required_document_code": naming.get("required_document_code")
+            or required_document.get("code"),
         },
 
         "storage": {
