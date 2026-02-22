@@ -44,8 +44,9 @@ def resolve_team_codes(db, allowed_teams: List[str], return_full_object: bool = 
     logger.debug(f"Searching entities with criteria: {criteria}")
 
     # 3. Consulta AQL
-    # Usamos un patrón de subconsulta (LET e = FIRST(...)) para garantizar 
-    # que el LIMIT 1 aplique por cada criterio individualmente.
+    # Hacemos resolución por criterio + recorrido jerárquico en grafo:
+    # - 0 saltos: retorna la propia entidad del criterio.
+    # - 1 salto INBOUND por belongs_to: retorna hijos directos (ej: carreras de una facultad).
     
     return_stmt = "e._key"
     if return_full_object:
@@ -70,19 +71,27 @@ def resolve_team_codes(db, allowed_teams: List[str], return_full_object: bool = 
     # y asignamos a 'e' afuera para que coincida con return_stmt.
     # CRITICO: Forzamos TO_STRING para comparar códigos numéricos (ej: 213 vs "213")
     aql = f"""
-    FOR c IN @criteria
-        LET e = FIRST(
-            FOR doc IN entities
-                FILTER doc.type == c.type 
-                   AND (
-                        doc.code == c.code 
-                        OR TO_STRING(doc.code) == c.code
-                        OR TO_STRING(doc.code_numeric) == c.code
-                   )
-                LIMIT 1
-                RETURN doc
-        )
-        FILTER e != null
+    LET matched_entities = (
+        FOR c IN @criteria
+            LET root = FIRST(
+                FOR doc IN entities
+                    FILTER doc.type == c.type
+                       AND (
+                            doc.code == c.code
+                            OR TO_STRING(doc.code) == c.code
+                            OR TO_STRING(doc.code_numeric) == c.code
+                       )
+                    LIMIT 1
+                    RETURN doc
+            )
+            FILTER root != null
+            FOR e IN 0..1 INBOUND root belongs_to
+                RETURN e
+    )
+
+    FOR e IN matched_entities
+        COLLECT entity_id = e._id INTO grouped
+        LET e = FIRST(grouped[*].e)
         RETURN {return_stmt}
     """
 
