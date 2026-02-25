@@ -168,8 +168,17 @@ class ValidationService:
         metadata_with_ids = await self._entities_service.ensure_entities_exist(db, raw_metadata, schema=schema)
         
         allowed_keys = allowed_keys_from_schema(schema) if schema else None
+        schema_labels = {
+            f["fieldKey"]: f.get("label", f["fieldKey"])
+            for f in (schema.get("fields", []) if schema else [])
+            if f.get("fieldKey")
+        }
 
-        clean_metadata = sanitize_metadata(metadata_with_ids, allowed_keys=allowed_keys)
+        clean_metadata = sanitize_metadata(
+            metadata_with_ids,
+            allowed_keys=allowed_keys,
+            schema_labels=schema_labels,
+        )
 
         integrity_payload = self._integrity.build_integrity_payload(
             doc_id=task_id,

@@ -30,6 +30,9 @@ class ArchiveService:
         process_seg = self._slug(process.get("code") or process.get("name") or "sin-proceso")
         required_seg = self._slug(context.get("required_doc_code") or context.get("required_doc_name") or "sin-documento")
 
+        if context_segments and context_segments[-1] == required_seg:
+            context_segments.pop()
+
         return f"archive/{'/'.join(context_segments)}/{process_seg}/{required_seg}/{doc_snapshot['_key']}"
 
     def _get_storage_instance(self):

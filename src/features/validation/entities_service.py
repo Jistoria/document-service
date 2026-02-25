@@ -129,6 +129,10 @@ class EntitiesService:
 
             logger.info("  ✅ Entidad verificada en '%s': %s", collection, entity_id)
 
+            entity_doc = db.collection(collection).get(entity_id)
+            if entity_doc and entity_doc.get("code_numeric") is not None:
+                target["code_numeric"] = entity_doc.get("code_numeric")
+
         return metadata
 
     def add_semantic_relation(self, db, task_id: str, entity_id: str, edge_name: str):

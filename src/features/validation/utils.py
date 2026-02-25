@@ -75,6 +75,7 @@ def filter_entity_fields(val: Dict[str, Any]) -> Dict[str, Any]:
         "name": val.get("name"),
         "code": val.get("code"),
         "type": val.get("type"),
+        "code_numeric": val.get("code_numeric"),
     }
     return {k: v for k, v in out.items() if v is not None}
 
@@ -101,7 +102,11 @@ def extract_metadata_value(value: Any) -> Any:
     return None
 
 
-def sanitize_metadata(raw_data: Dict[str, Any], allowed_keys: Optional[set[str]] = None) -> Dict[str, Any]:
+def sanitize_metadata(
+    raw_data: Dict[str, Any],
+    allowed_keys: Optional[set[str]] = None,
+    schema_labels: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """
     Normaliza y limpia la metadata:
     - Elimina wrapper UI (is_valid/source/message/etc).
@@ -112,16 +117,17 @@ def sanitize_metadata(raw_data: Dict[str, Any], allowed_keys: Optional[set[str]]
     clean: Dict[str, Any] = {}
 
     for key, item in (raw_data or {}).items():
+        label = (schema_labels or {}).get(key, key)
         if allowed_keys is not None and key not in allowed_keys:
             continue
 
         if not isinstance(item, dict):
-            clean[key] = {"value": item}
+            clean[key] = {"value": item, "label": label}
             continue
 
         if "value" in item:
             if item.get("is_valid") is False:
-                clean[key] = None
+                clean[key] = {"value": None, "label": label}
                 continue
 
             val = item.get("value")
@@ -129,6 +135,7 @@ def sanitize_metadata(raw_data: Dict[str, Any], allowed_keys: Optional[set[str]]
             if isinstance(val, dict):
                 normalized = filter_entity_fields(val)
                 normalized["value"] = extract_metadata_value(normalized)
+                normalized["label"] = label
                 clean[key] = normalized
                 continue
 
@@ -141,16 +148,18 @@ def sanitize_metadata(raw_data: Dict[str, Any], allowed_keys: Optional[set[str]]
                 minimal = {k: v for k, v in minimal.items() if v}
                 if minimal:
                     minimal["value"] = extract_metadata_value(minimal)
+                    minimal["label"] = label
                     clean[key] = minimal
                 else:
-                    clean[key] = None
+                    clean[key] = {"value": None, "label": label}
                 continue
 
-            clean[key] = {"value": val}
+            clean[key] = {"value": val, "label": label}
             continue
 
         normalized_item = dict(item)
         normalized_item["value"] = extract_metadata_value(normalized_item)
+        normalized_item["label"] = label
         clean[key] = normalized_item
 
     return clean
