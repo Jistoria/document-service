@@ -29,9 +29,9 @@ services:
     networks:
       - thesis-net
     restart: unless-stopped
-    # Opcional: solo si necesitas acceso local desde el VPS (debug):
+    # Habilitada para presentacion
     ports:
-      - "127.0.0.1:8529:8529"
+      - "8529:8529"
 
   storage:
     image: minio/minio:latest
@@ -44,10 +44,10 @@ services:
     networks:
       - thesis-net
     restart: unless-stopped
-    # Solo local. API hablará con minio por red interna.
+    #habilitada para local
     ports:
       - "127.0.0.1:9005:9000"
-      - "127.0.0.1:9007:9001"
+      - "9007:9001"
 
 volumes:
   arango_data:
