@@ -1,7 +1,9 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from logging import getLogger
 from fastapi.responses import StreamingResponse
 from minio.error import S3Error
+
+from typing import Optional
 
 from src.core.security.auth import AuthContext, get_auth_context
 from src.core.storage import storage_instance
@@ -12,20 +14,31 @@ router = APIRouter(prefix="/storage", tags=["Storage Proxy"])
 logger = getLogger(__name__)
 
 
+async def _resolve_optional_auth_context(request: Request) -> Optional[AuthContext]:
+    try:
+        return await get_auth_context(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            logger.warning("⚠️ Solicitud sin autenticación en storage proxy | path=%s", request.url.path)
+            return None
+        raise
+
+
 @router.get("/proxy/{object_path:path}")
 async def get_file_via_proxy(
     object_path: str,
     request: Request,
     background_tasks: BackgroundTasks,
-    ctx: AuthContext = Depends(get_auth_context),
 ):
     """Proxy de descarga con autorización ABAC y auditoría asíncrona."""
     try:
+        ctx = await _resolve_optional_auth_context(request)
+
         logger.info(
             "📥 Storage proxy request | method=%s path=%s user_id=%s auth_header=%s",
             request.method,
             request.url.path,
-            ctx.user_id,
+            (ctx.user_id if ctx else "anonymous"),
             bool(request.headers.get("Authorization")),
         )
 
@@ -50,7 +63,7 @@ async def get_file_via_proxy(
         logger.info(
             "🧾 Download autorizado | doc_id=%s user_id=%s ip=%s clean_path=%s",
             doc_id,
-            ctx.user_id,
+            (ctx.user_id if ctx else "anonymous"),
             ip_address,
             clean_path,
         )
@@ -58,7 +71,7 @@ async def get_file_via_proxy(
         background_tasks.add_task(
             storage_proxy_service.log_document_download,
             doc_id,
-            ctx.user_id,
+            (ctx.user_id if ctx else "anonymous"),
             ip_address,
         )
         background_tasks.add_task(data_stream.close)

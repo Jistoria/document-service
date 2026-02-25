@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from logging import getLogger
 
 from fastapi import HTTPException
+from arango.exceptions import ArangoError
 
 from src.core.database import db_instance
 from src.core.security.auth import AuthContext
@@ -29,13 +30,13 @@ class StorageProxyService:
             clean_path = object_path.replace(bucket_prefix, "", 1)
         return clean_path
 
-    async def authorize_document_download(self, object_path: str, ctx: AuthContext) -> Dict[str, Any]:
+    async def authorize_document_download(self, object_path: str, ctx: Optional[AuthContext]) -> Dict[str, Any]:
         clean_path = self.normalize_object_path(object_path)
         candidate_paths = [object_path, clean_path, f"{storage_instance.bucket_name}/{clean_path}"]
 
         logger.info(
             "🔎 Validando descarga | user_id=%s object_path=%s clean_path=%s",
-            ctx.user_id,
+            (ctx.user_id if ctx else "anonymous"),
             object_path,
             clean_path,
         )
@@ -46,13 +47,13 @@ class StorageProxyService:
             raise HTTPException(status_code=404, detail="Documento no encontrado para la ruta solicitada.")
 
         if await self._has_document_access(document_key=document.get("_key"), document=document, ctx=ctx):
-            logger.info("✅ Acceso permitido a descarga | doc_id=%s user_id=%s", document.get("_key"), ctx.user_id)
+            logger.info("✅ Acceso permitido a descarga | doc_id=%s user_id=%s", document.get("_key"), (ctx.user_id if ctx else "anonymous"))
             return document
 
         logger.warning(
             "🚫 Acceso denegado a descarga | doc_id=%s user_id=%s is_public=%s owner_id=%s",
             document.get("_key"),
-            ctx.user_id,
+            (ctx.user_id if ctx else "anonymous"),
             bool(document.get("is_public")),
             ((document.get("owner") or {}).get("id") or ""),
         )
@@ -62,7 +63,7 @@ class StorageProxyService:
             detail="No tienes permisos para descargar este documento",
         )
 
-    async def _has_document_access(self, document_key: Optional[str], document: Dict[str, Any], ctx: AuthContext) -> bool:
+    async def _has_document_access(self, document_key: Optional[str], document: Dict[str, Any], ctx: Optional[AuthContext]) -> bool:
         is_public = bool(document.get("is_public"))
         owner_id = ((document.get("owner") or {}).get("id") or "")
 
@@ -70,9 +71,13 @@ class StorageProxyService:
             logger.info("🔓 Acceso por documento público | doc_id=%s", document_key)
             return True
 
-        if owner_id and owner_id == ctx.user_id:
+        if ctx and owner_id and owner_id == ctx.user_id:
             logger.info("👤 Acceso por owner | doc_id=%s user_id=%s", document_key, ctx.user_id)
             return True
+
+        if not ctx:
+            logger.info("🙈 Solicitud anónima para documento no público | doc_id=%s", document_key)
+            return False
 
         read_teams = await get_permitted_scopes_logic("dms.document.read", ctx)
         logger.info("🧩 Equipos con permiso read | user_id=%s teams=%s", ctx.user_id, read_teams)
@@ -132,7 +137,7 @@ class StorageProxyService:
     async def log_document_download(
         self,
         doc_id: str,
-        user_id: str,
+        user_id: Optional[str],
         ip_address: Optional[str] = None,
     ) -> None:
         aql = """
@@ -146,14 +151,23 @@ class StorageProxyService:
 
         logger.info("📝 Audit download insert | doc_id=%s user_id=%s ip=%s", doc_id, user_id, ip_address)
 
-        self.db.aql.execute(
-            aql,
-            bind_vars={
-                "document_id": doc_id,
-                "user_id": user_id,
-                "ip_address": ip_address,
-            },
-        )
+        bind_vars = {
+            "document_id": doc_id,
+            "user_id": user_id or "anonymous",
+            "ip_address": ip_address,
+        }
+
+        try:
+            self.db.aql.execute(aql, bind_vars=bind_vars)
+        except ArangoError as exc:
+            logger.error("⚠️ No se pudo registrar auditoría de descarga: %s", str(exc))
+            try:
+                if not self.db.has_collection("audit_downloads"):
+                    self.db.create_collection("audit_downloads")
+                    logger.warning("🛠️ Colección audit_downloads no existía; fue creada automáticamente.")
+                    self.db.aql.execute(aql, bind_vars=bind_vars)
+            except Exception as retry_exc:
+                logger.error("⚠️ Falló reintento de auditoría de descarga: %s", str(retry_exc))
 
 
 storage_proxy_service = StorageProxyService()
