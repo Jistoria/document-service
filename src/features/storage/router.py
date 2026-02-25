@@ -1,36 +1,29 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from minio.error import S3Error
-# Asumo que importas tu instancia de servicio ya configurada
+
+from src.core.security.auth import AuthContext, get_auth_context
 from src.core.storage import storage_instance
+
+from .service import storage_proxy_service
 
 router = APIRouter(prefix="/storage", tags=["Storage Proxy"])
 
 
 @router.get("/proxy/{object_path:path}")
-async def get_file_via_proxy(object_path: str):
-    """
-    Proxy de descarga: El Frontend pide aquí, el Backend pide a MinIO
-    y devuelve los bytes en streaming.
-
-    Ventaja: Evita problemas de CORS y redes Docker.
-    """
+async def get_file_via_proxy(
+    object_path: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    ctx: AuthContext = Depends(get_auth_context),
+):
+    """Proxy de descarga con autorización ABAC y auditoría asíncrona."""
     try:
-        # 1. Obtenemos el objeto de MinIO (Stream)
-        # Usamos el cliente interno (el que sí conecta dentro de Docker)
-        # Nota: Asegúrate de limpiar el nombre del bucket si viene en el path
-        clean_path = object_path
-        if object_path.startswith(f"{storage_instance.bucket_name}/"):
-            clean_path = object_path.replace(f"{storage_instance.bucket_name}/", "", 1)
+        document = await storage_proxy_service.authorize_document_download(object_path, ctx)
 
-        # MinIO get_object devuelve un objeto response tipo stream
-        data_stream = storage_instance.client.get_object(
-            storage_instance.bucket_name,
-            clean_path
-        )
+        clean_path = storage_proxy_service.normalize_object_path(object_path)
+        data_stream = storage_instance.client.get_object(storage_instance.bucket_name, clean_path)
 
-        # 2. Determinamos el Content-Type correcto
-        # Si es PDF, navegador lo muestra. Si es desconocido, descarga.
         media_type = "application/octet-stream"
         if clean_path.endswith(".pdf"):
             media_type = "application/pdf"
@@ -41,23 +34,31 @@ async def get_file_via_proxy(object_path: str):
         elif clean_path.endswith(".json"):
             media_type = "application/json"
 
-        # 3. Retornamos el StreamingResponse
-        # Esto conecta el tubo de MinIO directo al tubo del Cliente
+        doc_id = document.get("_key", "")
+        ip_address = request.client.host if request.client else None
+
+        background_tasks.add_task(
+            storage_proxy_service.log_document_download,
+            doc_id,
+            ctx.user_id,
+            ip_address,
+        )
+        background_tasks.add_task(data_stream.close)
+
         return StreamingResponse(
             data_stream,
             media_type=media_type,
             headers={
-                # "inline" hace que el navegador intente mostrarlo (visor PDF)
-                # "attachment" forzaría la descarga
                 "Content-Disposition": f"inline; filename={clean_path.split('/')[-1]}"
-            }
+            },
         )
 
+    except HTTPException:
+        raise
     except S3Error as e:
         if e.code == "NoSuchKey":
             raise HTTPException(status_code=404, detail="Archivo no encontrado.")
         raise HTTPException(status_code=500, detail=f"Error de Storage: {str(e)}")
-
     except Exception as e:
         print(f"Error proxying file: {e}")
         raise HTTPException(status_code=500, detail="Error interno al procesar el archivo.")

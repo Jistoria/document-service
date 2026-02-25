@@ -5,8 +5,6 @@ from typing import Any, Dict, List, Optional
 from arango.exceptions import ArangoError
 
 from src.core.database import db_instance
-from src.features.search.dependencies import VERIFICATION_STATUSES
-
 from .repository import SearchRepository
 from .response_builder import ResponseBuilder
 
@@ -58,11 +56,10 @@ class SearchService:
         try:
             db = self.get_db()
 
-            valid_owner_ids, enforce_team_scope = self._validate_permissions(db, allowed_teams)
+            valid_owner_ids = self._validate_permissions(db, allowed_teams)
 
             filters = {
                 "valid_owner_ids": valid_owner_ids,
-                "enforce_team_scope": enforce_team_scope,
                 "status": status,
                 "entity_id": entity_id,
                 "process_id": process_id if not process_ids else None,
@@ -78,7 +75,7 @@ class SearchService:
                 "fuzziness": fuzziness,
             }
 
-            if status in VERIFICATION_STATUSES and current_user_id:
+            if current_user_id:
                 filters["current_user_id"] = current_user_id
 
             offset = (page - 1) * page_size
@@ -126,13 +123,12 @@ class SearchService:
         self,
         db,
         allowed_teams: Optional[List[str]],
-    ) -> tuple[List[str], bool]:
-        """Valida permisos y define si se aplica filtro por equipos o visibilidad pública."""
+    ) -> List[str]:
+        """Resuelve los owner_ids válidos a partir de los equipos permitidos."""
         if allowed_teams and "*" not in allowed_teams:
-            valid_owner_ids = self._resolve_team_codes_to_uuids(db, allowed_teams)
-            return valid_owner_ids, True
+            return self._resolve_team_codes_to_uuids(db, allowed_teams)
 
-        return [], False
+        return []
 
     def _resolve_team_codes_to_uuids(self, db, allowed_teams: List[str]) -> List[str]:
         """Traduce códigos de permisos a _key UUID de entidades."""
