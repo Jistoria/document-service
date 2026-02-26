@@ -1,36 +1,52 @@
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from logging import getLogger
 from fastapi.responses import StreamingResponse
 from minio.error import S3Error
-# Asumo que importas tu instancia de servicio ya configurada
+
+from typing import Optional
+
+from src.core.security.auth import AuthContext, get_auth_context
 from src.core.storage import storage_instance
 
+from .service import storage_proxy_service
+
 router = APIRouter(prefix="/storage", tags=["Storage Proxy"])
+logger = getLogger(__name__)
+
+
+async def _resolve_optional_auth_context(request: Request) -> Optional[AuthContext]:
+    try:
+        return await get_auth_context(request)
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            logger.warning("⚠️ Solicitud sin autenticación en storage proxy | path=%s", request.url.path)
+            return None
+        raise
 
 
 @router.get("/proxy/{object_path:path}")
-async def get_file_via_proxy(object_path: str):
-    """
-    Proxy de descarga: El Frontend pide aquí, el Backend pide a MinIO
-    y devuelve los bytes en streaming.
-
-    Ventaja: Evita problemas de CORS y redes Docker.
-    """
+async def get_file_via_proxy(
+    object_path: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """Proxy de descarga con autorización ABAC y auditoría asíncrona."""
     try:
-        # 1. Obtenemos el objeto de MinIO (Stream)
-        # Usamos el cliente interno (el que sí conecta dentro de Docker)
-        # Nota: Asegúrate de limpiar el nombre del bucket si viene en el path
-        clean_path = object_path
-        if object_path.startswith(f"{storage_instance.bucket_name}/"):
-            clean_path = object_path.replace(f"{storage_instance.bucket_name}/", "", 1)
+        ctx = await _resolve_optional_auth_context(request)
 
-        # MinIO get_object devuelve un objeto response tipo stream
-        data_stream = storage_instance.client.get_object(
-            storage_instance.bucket_name,
-            clean_path
+        logger.info(
+            "📥 Storage proxy request | method=%s path=%s user_id=%s auth_header=%s",
+            request.method,
+            request.url.path,
+            (ctx.user_id if ctx else "anonymous"),
+            bool(request.headers.get("Authorization")),
         )
 
-        # 2. Determinamos el Content-Type correcto
-        # Si es PDF, navegador lo muestra. Si es desconocido, descarga.
+        document = await storage_proxy_service.authorize_document_download(object_path, ctx)
+
+        clean_path = storage_proxy_service.normalize_object_path(object_path)
+        data_stream = storage_instance.client.get_object(storage_instance.bucket_name, clean_path)
+
         media_type = "application/octet-stream"
         if clean_path.endswith(".pdf"):
             media_type = "application/pdf"
@@ -41,23 +57,47 @@ async def get_file_via_proxy(object_path: str):
         elif clean_path.endswith(".json"):
             media_type = "application/json"
 
-        # 3. Retornamos el StreamingResponse
-        # Esto conecta el tubo de MinIO directo al tubo del Cliente
+        doc_id = document.get("_key", "")
+        ip_address = request.client.host if request.client else None
+
+        logger.info(
+            "🧾 Download autorizado | doc_id=%s user_id=%s ip=%s clean_path=%s",
+            doc_id,
+            (ctx.user_id if ctx else "anonymous"),
+            ip_address,
+            clean_path,
+        )
+
+        background_tasks.add_task(
+            storage_proxy_service.log_document_download,
+            doc_id,
+            (ctx.user_id if ctx else "anonymous"),
+            ip_address,
+        )
+        background_tasks.add_task(data_stream.close)
+
         return StreamingResponse(
             data_stream,
             media_type=media_type,
             headers={
-                # "inline" hace que el navegador intente mostrarlo (visor PDF)
-                # "attachment" forzaría la descarga
                 "Content-Disposition": f"inline; filename={clean_path.split('/')[-1]}"
-            }
+            },
         )
 
+    except HTTPException as exc:
+        logger.warning(
+            "⚠️ Storage proxy rechazado | status=%s detail=%s method=%s path=%s",
+            exc.status_code,
+            exc.detail,
+            request.method,
+            request.url.path,
+        )
+        raise
     except S3Error as e:
+        logger.error("❌ Error S3 en storage proxy | code=%s message=%s", e.code, str(e))
         if e.code == "NoSuchKey":
             raise HTTPException(status_code=404, detail="Archivo no encontrado.")
         raise HTTPException(status_code=500, detail=f"Error de Storage: {str(e)}")
-
     except Exception as e:
-        print(f"Error proxying file: {e}")
+        logger.exception("❌ Error inesperado en storage proxy: %s", str(e))
         raise HTTPException(status_code=500, detail="Error interno al procesar el archivo.")

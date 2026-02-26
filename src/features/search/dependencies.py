@@ -13,7 +13,7 @@ logger = getLogger(__name__)
 async def resolve_status_and_teams(
         status: Optional[str] = Query(None, description="Estado del documento. Si se omite, se asume 'validated'."),
         ctx: AuthContext = Depends(get_auth_context),
-) -> Tuple[Optional[str], List[str]]:
+) -> Tuple[Optional[str], List[str], str]:
     """
     Dependency Inteligente:
     1. Determina qué equipos (scopes) aplicar.
@@ -38,7 +38,7 @@ async def resolve_status_and_teams(
     if status in VERIFICATION_STATUSES:
         # ¿Tiene permisos globales de workflow?
         if "*" in approve_teams or "*" in reject_teams:
-            return status, ["*"]
+            return status, ["*"], ctx.user_id
 
         # Unimos los equipos donde puede aprobar O rechazar
         allowed_workflow_teams = sorted(set(approve_teams) | set(reject_teams))
@@ -50,14 +50,11 @@ async def resolve_status_and_teams(
             )
 
         # Retornamos solo los equipos donde tiene poder de decisión
-        return status, allowed_workflow_teams
+        return status, allowed_workflow_teams, ctx.user_id
 
     # 4. Lógica Estándar (Lectura)
     # Si pide 'validated', 'confirmed' o cualquier otro estado público
     if "*" in read_teams:
-        return status, ["*"]
+        return status, ["*"], ctx.user_id
 
-    if not read_teams:
-        raise HTTPException(status_code=403, detail="No tienes permisos de lectura de documentos.")
-
-    return status, read_teams
+    return status, read_teams or [], ctx.user_id

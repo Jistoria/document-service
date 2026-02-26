@@ -320,22 +320,45 @@ async def get_auth_context(
     request: Request,
     x_team_id: Optional[str] = Header(None, alias="X-Team-Id"),
 ) -> AuthContext:
+    request_path = request.url.path
+    request_method = request.method
+
     # 1) Extraer Bearer token
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
+        logger.warning(
+            "❌ Auth header inválido o ausente | method=%s path=%s has_auth_header=%s auth_prefix=%s",
+            request_method,
+            request_path,
+            bool(auth),
+            auth[:20] if auth else "",
+        )
         raise HTTPException(status_code=401, detail="Falta el token Bearer")
 
     token = auth[len("Bearer ") :].strip()
     if not token:
+        logger.warning("❌ Token bearer vacío | method=%s path=%s", request_method, request_path)
         raise HTTPException(status_code=401, detail="Token vacío")
 
     token_hash = sha256_hex(token)
+    logger.info(
+        "🔐 Token recibido | method=%s path=%s token_hash_prefix=%s x_team_id=%s",
+        request_method,
+        request_path,
+        token_hash[:12],
+        x_team_id,
+    )
 
     # 2) Redis session primero
     session = await _load_unified_session(token_hash, "local")
 
     # 3) Fallback si Redis no respondió o no hubo match
     if session is None:
+        logger.warning(
+            "⚠️ Sesión no encontrada en Redis, aplicando fallback JWT | path=%s token_hash_prefix=%s",
+            request_path,
+            token_hash[:12],
+        )
         session = await _fallback_validation(token)
 
     user_id = str(session.get("user_id"))
@@ -343,6 +366,15 @@ async def get_auth_context(
     token_type = session.get("token_type", "unknown")
     team_ids: List[str] = session.get("team_ids") or []
     microservices_data = session.get("microservices_data") or {}
+
+    logger.info(
+        "✅ AuthContext resuelto | path=%s user_id=%s token_type=%s teams=%s fallback=%s",
+        request_path,
+        user_id,
+        token_type,
+        len(team_ids),
+        session.get("_is_fallback", False),
+    )
 
     # 4) Validación opcional de team si viene header
     # if x_team_id and team_ids and x_team_id not in team_ids:
