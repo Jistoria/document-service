@@ -51,21 +51,37 @@ class SearchRepository:
         aql_filters: List[str] = []
         bind_vars: Dict[str, Any] = {"offset": offset, "limit": limit}
 
-        if filters.get("enforce_team_scope"):
-            bind_vars["valid_owner_ids"] = filters.get("valid_owner_ids") or []
-            aql_filters.append(
+        security_conditions: List[str] = []
+        current_user_id = filters.get("current_user_id")
+        if current_user_id:
+            bind_vars["current_user_id"] = current_user_id
+            security_conditions.append("doc.owner.id == @current_user_id")
+
+        security_conditions.append(
+            """
+            (
+                TO_BOOL(doc.is_public)
+                AND doc.status IN ["confirmed", "validated"]
+            )
+            """
+        )
+
+        valid_owner_ids = filters.get("valid_owner_ids") or []
+        if valid_owner_ids:
+            bind_vars["valid_owner_ids"] = valid_owner_ids
+            security_conditions.append(
                 """
-                (
-                    TO_BOOL(doc.is_public)
-                    OR LENGTH(
-                        FOR owner IN 1..2 OUTBOUND doc file_located_in, belongs_to
-                        FILTER owner._key IN @valid_owner_ids
-                        LIMIT 1
-                        RETURN 1
-                    ) > 0
-                )
+                LENGTH(
+                    FOR owner IN 1..2 OUTBOUND doc file_located_in, belongs_to
+                    FILTER owner._key IN @valid_owner_ids
+                    LIMIT 1
+                    RETURN 1
+                ) > 0
                 """
             )
+
+        if security_conditions:
+            aql_filters.append(f"({' OR '.join(security_conditions)})")
 
         self._add_filter_if_present(
             filters,
@@ -73,14 +89,6 @@ class SearchRepository:
             aql_filters,
             bind_vars,
             "doc.status == @status",
-        )
-
-        self._add_filter_if_present(
-            filters,
-            "current_user_id",
-            aql_filters,
-            bind_vars,
-            "doc.owner.id == @current_user_id",
         )
 
         self._add_filter_if_present(

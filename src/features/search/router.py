@@ -5,8 +5,6 @@ from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from src.core.security.auth import AuthContext, get_auth_context
-
 from .dependencies import resolve_status_and_teams
 from .models import (
     DocumentDetailResponse,
@@ -142,11 +140,10 @@ async def get_documents(
     page: int = 1,
     limit: int = 10,
     params: DocumentSearchQueryParams = Depends(),
-    search_context: Tuple[Optional[str], List[str]] = Depends(resolve_status_and_teams),
-    ctx: AuthContext = Depends(get_auth_context),
+    search_context: Tuple[Optional[str], List[str], str] = Depends(resolve_status_and_teams),
 ):
     """Lista documentos paginados con formato estándar y filtros avanzados."""
-    resolved_status, allowed_teams = search_context
+    resolved_status, allowed_teams, current_user_id = search_context
 
     metadata_filters = _parse_metadata_filters(params.metadata_filters)
     resolved_entity_id = _resolve_entity_id(params.entity_id, request)
@@ -160,7 +157,7 @@ async def get_documents(
         process_ids=resolved_process_ids,
         status=resolved_status,
         allowed_teams=allowed_teams,
-        current_user_id=ctx.user_id,
+        current_user_id=current_user_id,
         search=params.search,
         required_document_id=params.required_document_id,
         referenced_entity_id=params.referenced_entity_id,

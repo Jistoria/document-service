@@ -5,8 +5,6 @@ from typing import Any, Dict, List, Optional
 from arango.exceptions import ArangoError
 
 from src.core.database import db_instance
-from src.features.search.dependencies import VERIFICATION_STATUSES
-
 from .repository import SearchRepository
 from .response_builder import ResponseBuilder
 
@@ -78,8 +76,7 @@ class SearchService:
                 "fuzziness": fuzziness,
             }
 
-            if status in VERIFICATION_STATUSES and current_user_id:
-                filters["current_user_id"] = current_user_id
+            filters["current_user_id"] = current_user_id
 
             offset = (page - 1) * page_size
             query_result = self.repository.search(offset=offset, limit=page_size, filters=filters)
